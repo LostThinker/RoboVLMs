@@ -208,6 +208,7 @@ class BaseDialPolicy:
             2. Once the user's need is clear, respond appropriately to confirm or acknowledge the user's request.
             3. Immediately after your response, summarize the task as a concise instruction using the format: <instruction>your command here</instruction>. The command should start with a verb and be as precise as possible.
             4. Respond as "Robot" in the conversation. Format your responses as: “Robot: [your message]”
+            5. After each response, wait for the user’s reply before continuing.
             
             ### Example Interaction:
             User: I feel a bit thirsty.  

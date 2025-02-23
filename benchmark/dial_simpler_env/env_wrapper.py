@@ -78,11 +78,11 @@ class SimplerEnv:
     def _get_proprio(self, obs):
         qpos_vel = np.concatenate([obs['agent']['qpos'], obs['agent']['qvel']])
         base_pose = obs['agent']['base_pose']
-        tcp_pose = obs['extra']['tcp_pose']
+        # tcp_pose = obs['extra']['tcp_pose']
 
         proprio = {
             'base_pose': base_pose,
-            'tcp_pose': tcp_pose
+            # 'tcp_pose': tcp_pose
         }
 
         return proprio

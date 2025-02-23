@@ -1,3 +1,4 @@
+import torch
 from env_wrapper import DialSimplerEnv, SimplerEnv
 from policy import BaseDialPolicy, VLAPolicy
 import matplotlib.pyplot as plt
@@ -7,8 +8,8 @@ import os
 
 
 def test_dial_interaction(task_name='google_robot_pick_coke_can', episode=1):
-    env = DialSimplerEnv(task_name, device_id=2)
-    policy = BaseDialPolicy(6, 7, robot_type=env.robot_type)
+    env = DialSimplerEnv(task_name, device_id=7)
+    policy = BaseDialPolicy(0, 1, robot_type=env.robot_type)
 
     log_dir = f'/data/user/qianlong/remote-ws/embodied-ai/vla/RoboVLMs/benchmark/dial_simpler_env/log/dial_eval/{task_name}'
     os.makedirs(log_dir, exist_ok=True)
@@ -35,12 +36,13 @@ def test_dial_interaction(task_name='google_robot_pick_coke_can', episode=1):
 
             if human_response is not None and robot_response is not None:
                 dialog.extend([human_response, robot_response])
+                # print("human_response: ", human_response)
+                # print("robot_response: ", robot_response)
 
-            # print("robot_response: ", robot_response)
             obs, reward, done, truncated, info = env.step(action, robot_response)
 
             human_response = obs['response']
-            # print("human_response: ", human_response)
+
 
             images.append(obs['image'])
             success = "success" if done else "failure"
@@ -67,7 +69,8 @@ def test_orig_vla(task_name='google_robot_pick_coke_can', episode=1):
     env = SimplerEnv(task_name)
     policy = VLAPolicy("openvla/openvla-7b", robot_type=env.robot_type, device_id=5)
 
-    log_dir = f'/data/user/qianlong/remote-ws/embodied-ai/vla/RoboVLMs/benchmark/dial_simpler_env/log/orig_eval/{task_name}'
+    # log_dir = f'/data/user/qianlong/remote-ws/embodied-ai/vla/RoboVLMs/benchmark/dial_simpler_env/log/orig_eval/{task_name}'
+    log_dir = f'/data/user/qianlong/remote-ws/embodied-ai/vla/RoboVLMs/benchmark/dial_simpler_env/log/test/{task_name}'
     os.makedirs(log_dir, exist_ok=True)
 
     for i in range(episode):
@@ -90,11 +93,18 @@ def test_orig_vla(task_name='google_robot_pick_coke_can', episode=1):
         video_save_path = os.path.join(log_dir, f'{instruction}-episode-{i}-{success}.mp4')
         write_video(video_save_path, images, fps=5)
 
-
 if __name__ == '__main__':
-    for task in simpler_env.ENVIRONMENTS:
-        # test_dial_interaction(task, episode=10)
-        test_orig_vla(task, episode=10)
+    # test_orig_vla('google_robot_pick_coke_can', episode=10)
+
+    torch.set_num_threads(8)
+#'google_robot_pick_coke_can', 'google_robot_pick_object','google_robot_move_near','google_robot_open_drawer'
+    tasks = [
+             'google_robot_close_drawer', 'google_robot_place_in_closed_drawer',
+             'widowx_spoon_on_towel', 'widowx_carrot_on_plate', 'widowx_stack_cube', 'widowx_put_eggplant_in_basket']
+
+    for task in tasks:
+        test_dial_interaction(task, episode=10)
+        # test_orig_vla(task, episode=10)
 
     #
 
