@@ -18,6 +18,7 @@ import torch.distributed as dist
 
 from robovlms.train.base_trainer import BaseTrainer
 from robovlms.data.datamodule.gr_datamodule import GRDataModule
+from robovlms.data.datamodule.co_train_datamodule import CoDataModule
 from robovlms.data.data_utils import preprocess_image
 from robovlms.utils.setup_callback import SetupCallback
 
@@ -152,9 +153,10 @@ def experiment(variant):
 
     _kwargs = {
         "model": model,
-        "datamodule": GRDataModule(
+        "datamodule": CoDataModule(
             variant["train_dataset"],
             variant["val_dataset"],
+            variant["coft_dataset"],
             variant["batch_size"],
             variant["num_workers"],
             tokenizer=model.model.tokenizer,
