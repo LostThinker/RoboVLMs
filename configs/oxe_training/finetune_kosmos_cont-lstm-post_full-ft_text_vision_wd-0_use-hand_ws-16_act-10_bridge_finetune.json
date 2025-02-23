@@ -40,6 +40,7 @@
     "resume": null,
     "model_path": ".vlms/kosmos-2-patch14-224",
     "model_config": ".vlms/kosmos-2-patch14-224/config.json",
+    "deepspeed_config": "configs/deepspeed/config.json",
     "train_setup": {
         "precision": "bf16",
         "predict_action": true,

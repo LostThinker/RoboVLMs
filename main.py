@@ -335,9 +335,25 @@ def parse_args():
 
     return args
 
+def update_json_config(file_path, key, value):
+    # 1. 加载现有的 JSON 配置文件
+    with open(file_path, 'r') as f:
+        config = json.load(f)
+
+    # 2. 修改指定的键值
+    keys = key.split('.')  # 支持嵌套键，使用 '.' 分隔层级
+    dict_ref = config
+    for part in keys[:-1]:  # 遍历直到倒数第二层
+        dict_ref = dict_ref.get(part, {})  # 获取嵌套的字典
+    dict_ref[keys[-1]] = value  # 修改最终的键
+
+    # 3. 将修改后的配置写回到 JSON 文件
+    with open(file_path, 'w') as f:
+        json.dump(config, f, indent=2)
+
 
 if __name__ == "__main__":
-    # import os
+    import os
 
     # os.environ['CUDA_LAUNCH_BLOCKING']="1"
     args = parse_args()
@@ -345,6 +361,11 @@ if __name__ == "__main__":
     # load config files
     configs = load_config(args.get("config"))
     configs = update_configs(configs, args)
+
+    os.environ['PL_DEEPSPEED_CONFIG_PATH'] = configs['deepspeed_config']
+
+    # Due to a conflict in deepspeed batch size setting.
+    update_json_config(configs['deepspeed_config'], "train_micro_batch_size_per_gpu", configs['batch_size'])
 
     dist.init_process_group(backend="nccl")
     experiment(variant=configs)
