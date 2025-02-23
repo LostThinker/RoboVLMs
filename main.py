@@ -1,4 +1,7 @@
 import os
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+os.environ['HF_HOME'] = '/data2/user/qianlong_dataset/hf_cache'
+
 import argparse
 import json
 from pathlib import Path
@@ -18,6 +21,7 @@ import torch.distributed as dist
 
 from robovlms.train.base_trainer import BaseTrainer
 from robovlms.data.datamodule.gr_datamodule import GRDataModule
+from robovlms.data.datamodule.co_train_datamodule import CoDataModule
 from robovlms.data.data_utils import preprocess_image
 from robovlms.utils.setup_callback import SetupCallback
 
@@ -129,7 +133,7 @@ def experiment(variant):
         os.system(f"git clone {variant['model_url']} .vlms/{repo_name}")
         variant['model_path'] = ".vlms/" + repo_name
         variant['model_config'] = os.path.join(variant['model_path'], "config.json")
-    
+
     if variant["model"] == "kosmos":
         import transformers
 
@@ -139,7 +143,7 @@ def experiment(variant):
                 package_dir
             )
         )
-    
+
     model = BaseTrainer.from_checkpoint(
         model_load_path, variant.get("model_load_source", "torch"), variant
     )
@@ -148,9 +152,10 @@ def experiment(variant):
 
     _kwargs = {
         "model": model,
-        "datamodule": GRDataModule(
+        "datamodule": CoDataModule(
             variant["train_dataset"],
             variant["val_dataset"],
+            variant['coft_dataset'],
             variant["batch_size"],
             variant["num_workers"],
             tokenizer=model.model.tokenizer,
@@ -158,6 +163,7 @@ def experiment(variant):
             fwd_pred_next_n=variant["fwd_pred_next_n"],
             window_size=variant["window_size"],
             image_size=variant["image_size"],
+            image_preprocess=image_preprocess,
             image_fn=functools.partial(
                 preprocess_image,
                 image_processor=image_preprocess,
@@ -234,10 +240,10 @@ def load_config(config_file):
 def update_configs(configs, args):
     configs["raw_config_path"] = args["config"]
     configs["output_root"] = (
-        Path(configs["output_root"]) / configs["model"] / configs["task_name"]
+            Path(configs["output_root"]) / configs["model"] / configs["task_name"]
     )
     configs["log_root"] = (
-        Path(configs["log_root"]) / configs["model"] / configs["task_name"]
+            Path(configs["log_root"]) / configs["model"] / configs["task_name"]
     )
     configs["cache_root"] = Path(configs["cache_root"]) / configs["model"]
 
@@ -260,7 +266,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # Experiment
-    parser.add_argument("config", type=str, help="config file used for training")
+    parser.add_argument("--config", default=None, type=str, help="config file used for training")
     parser.add_argument("--gpus", default=1, type=int)
     parser.add_argument("--num_nodes", default=1, type=int)
     parser.add_argument("--seed", default=None, type=int)
@@ -309,7 +315,7 @@ def parse_args():
     llm_parser.add_argument("--n_layer", default=None, type=int)
     llm_parser.add_argument("--n_head", default=None, type=int)
     llm_names = (
-        set(vars(parser.parse_known_args()[0]).keys()) - global_names - trainer_names
+            set(vars(parser.parse_known_args()[0]).keys()) - global_names - trainer_names
     )
 
     args = {}
@@ -330,15 +336,131 @@ def parse_args():
     return args
 
 
+def debug(variant):
+    seed_everything(variant["seed"] + int(os.environ["RANK"]))
+    # import pdb; pdb.set_trace()
+    trainer_config = init_trainer_config(variant)
+    model_load_path = variant.get("model_load_path", None)
+
+    trainer = Trainer(**trainer_config)
+    variant["gpus"] = trainer.num_devices
+    variant["train_setup"]["precision"] = variant["trainer"]["precision"]
+
+    if variant["fwd_head"] is not None:
+        variant["train_setup"]["predict_forward_hand"] = variant["fwd_head"].get(
+            "pred_hand_image", False
+        )
+
+    if not os.path.exists(variant['model_path']):
+        repo_name = variant["model_url"].split("/")[-1].split(".")[0]
+        print(
+            f"VLM backbone does not exist, cloning {variant['model']} from {variant['model_url']}..."
+        )
+        os.system(f"git clone {variant['model_url']} .vlms/{repo_name}")
+        variant['model_path'] = ".vlms/" + repo_name
+        variant['model_config'] = os.path.join(variant['model_path'], "config.json")
+
+    if variant["model"] == "kosmos":
+        import transformers
+
+        package_dir = transformers.__path__[0]
+        os.system(
+            "cp tools/modeling_kosmos2.py {}/models/kosmos2/modeling_kosmos2.py".format(
+                package_dir
+            )
+        )
+
+    model = BaseTrainer.from_checkpoint(
+        model_load_path, variant.get("model_load_source", "torch"), variant
+    )
+
+    image_preprocess = model.model.image_processor
+
+    datamodule = CoDataModule(
+        variant["train_dataset"],
+        variant["val_dataset"],
+        variant["batch_size"],
+        variant["num_workers"],
+        tokenizer=model.model.tokenizer,
+        tokenizer_config=variant["tokenizer"],
+        fwd_pred_next_n=variant["fwd_pred_next_n"],
+        window_size=variant["window_size"],
+        image_size=variant["image_size"],
+        image_preprocess=image_preprocess,
+        image_fn=functools.partial(
+            preprocess_image,
+            image_processor=image_preprocess,
+            model_type=variant["model"],
+        ),
+        discrete=(
+            False
+            if variant["act_head"] is None
+            else variant["act_head"].get("action_space", "continuous") == "discrete"
+        ),
+        discrete_action=(
+            False
+            if variant["act_head"] is None
+            else variant["act_head"].get("action_space", "continuous") == "discrete"
+        ),
+        use_mu_law=variant.get("use_mu_law", False),
+        mu_val=variant.get("mu_val", 255),
+        n_bin=(
+            256
+            if variant["act_head"] is None
+            else variant["act_head"].get("n_bin", 256)
+        ),
+        min_action=(
+            -1
+            if variant["act_head"] is None
+            else variant["act_head"].get("min_action", -1)
+        ),
+        max_action=(
+            1
+            if variant["act_head"] is None
+            else variant["act_head"].get("max_action", 1)
+        ),
+        discrete_action_history=variant.get("discrete_action_history", False),
+        act_step=variant.get("fwd_pred_next_n", 1),
+        norm_action=variant.get("norm_action", False),
+        norm_min=variant.get("norm_min", -1),
+        norm_max=variant.get("norm_max", 1),
+        regular_action=variant.get("regular_action", False),
+        x_mean=variant.get("x_mean", 0),
+        x_std=variant.get("x_std", 1),
+        weights=variant.get("train_weights", None),
+        tcp_rel=variant.get("tcp_rel", False),
+        # vit_name=vit_name,
+        model_name=variant.get("model", "flamingo"),
+    )
+
+    train_dataloader = datamodule.train_dataloader()
+
+    train_datasets = datamodule.train_datasets()
+
+    for data in train_datasets:
+        print(1)
+        break
+
+    for batch in train_dataloader:
+        print(1)
+        break
+
+
 if __name__ == "__main__":
     # import os
 
     # os.environ['CUDA_LAUNCH_BLOCKING']="1"
+    os.environ['RANK'] = '0'
     args = parse_args()
+
+    args['exp_name'] = 'debug'
+    args[
+        'config'] = './configs/oxe_training/finetune_kosmos_cont-lstm-post_full-ft_text_vision_wd-0_use-hand_ws-16_act-10_bridge_finetune.json'
 
     # load config files
     configs = load_config(args.get("config"))
     configs = update_configs(configs, args)
 
-    dist.init_process_group(backend="nccl")
+    # dist.init_process_group(backend="nccl")
     experiment(variant=configs)
+    # debug(variant=configs)
