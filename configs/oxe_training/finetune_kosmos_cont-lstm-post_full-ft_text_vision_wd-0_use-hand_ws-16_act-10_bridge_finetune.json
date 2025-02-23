@@ -14,7 +14,7 @@
     "cap_loss_ratio": 0.05,
     "fwd_loss_ratio": 0,
     "seed": 123,
-    "batch_size": 4,
+    "batch_size": 1,
     "num_workers": 16,
     "data_scale": 1,
     "optimizer": "adam",
@@ -40,6 +40,7 @@
     "resume": null,
     "model_path": ".vlms/kosmos-2-patch14-224",
     "model_config": ".vlms/kosmos-2-patch14-224/config.json",
+    "deepspeed_config": "configs/deepspeed/config.json",
     "train_setup": {
         "precision": "bf16",
         "predict_action": true,
@@ -112,7 +113,7 @@
     },
     "train_dataset": {
         "type": "OpenVLADataset",
-        "data_root_dir": "datasets/open-x-embodiment",
+        "data_root_dir": "/data2/user/qianlong_dataset/robot_dataset/robot-dataset/open-x-embodiment/robotics",
         "model_name": "kosmos",
         "image_aug": true,
         "mode": "train",
@@ -124,7 +125,7 @@
     },
     "val_dataset": {
         "type": "OpenVLADataset",
-        "data_root_dir": "datasets/open-x-embodiment",
+        "data_root_dir": "/data2/user/qianlong_dataset/robot_dataset/robot-dataset/open-x-embodiment/robotics",
         "model_name": "kosmos",
         "mode": "train",
         "data_mix": "bridge",
