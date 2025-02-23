@@ -212,25 +212,33 @@ class CoDataModule(pl.LightningDataModule):
         if mode == "train":
             batch_size = self._init_dataset_params(True, "batch_size")
             num_workers = self._init_dataset_params(True, "num_workers")
+
+            sampler = RandomSampler(self._vlm_train_datasets)
             self._vlm_train_loader = torch.utils.data.DataLoader(
                 self._vlm_train_datasets,
                 batch_size=batch_size,
-                # num_workers=4,
+                num_workers=4,
+                sampler=sampler,
                 drop_last=True,
                 collate_fn=collate_fn,
-                # pin_memory=True
+                prefetch_factor=3,
+                pin_memory=True
             )
 
         elif mode == "val":
             batch_size = self._init_dataset_params(False, "batch_size")
             num_workers = self._init_dataset_params(False, "num_workers")
+
+            sampler = RandomSampler(self._vlm_val_datasets)
             self._vlm_val_loader = torch.utils.data.DataLoader(
                 self._vlm_val_datasets,
                 batch_size=batch_size,
-                # num_workers=4,
+                num_workers=4,
+                sampler=sampler,
                 drop_last=True,
                 collate_fn=collate_fn,
-                # pin_memory=True
+                prefetch_factor=3,
+                pin_memory=True
             )
 
     def train_datasets(self):
