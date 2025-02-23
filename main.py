@@ -164,6 +164,7 @@ def experiment(variant):
             fwd_pred_next_n=variant["fwd_pred_next_n"],
             window_size=variant["window_size"],
             image_size=variant["image_size"],
+            image_preprocess=image_preprocess,
             image_fn=functools.partial(
                 preprocess_image,
                 image_processor=image_preprocess,

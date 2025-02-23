@@ -15,7 +15,7 @@ export PYTHONUNBUFFERED=1
 export OMP_NUM_THREADS=16
 export NCCL_IB_DISABLE=0
 export NCCL_IB_GID_INDEX=3
-export NCCL_SOCKET_IFNAME=eth0
+export NCCL_SOCKET_IFNAME="*"
 
 # setup distributed training args
 GPUS_PER_NODE=1
