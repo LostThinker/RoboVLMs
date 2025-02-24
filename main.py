@@ -164,7 +164,6 @@ def experiment(variant):
             fwd_pred_next_n=variant["fwd_pred_next_n"],
             window_size=variant["window_size"],
             image_size=variant["image_size"],
-            image_preprocess=image_preprocess,
             image_fn=functools.partial(
                 preprocess_image,
                 image_processor=image_preprocess,
@@ -335,6 +334,7 @@ def parse_args():
     args["trainer"] = trainer_args
 
     return args
+
 
 def update_json_config(file_path, key, value):
     # 1. 加载现有的 JSON 配置文件
