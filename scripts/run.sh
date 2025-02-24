@@ -17,8 +17,11 @@ export NCCL_IB_DISABLE=0
 export NCCL_IB_GID_INDEX=3
 export NCCL_SOCKET_IFNAME="*"
 
+export CUDA_VISIBLE_DEVICES=4,5,6,7
+
+
 # setup distributed training args
-GPUS_PER_NODE=1
+GPUS_PER_NODE=4
 WORKER_NUM=1 # number of distributed workers
 
 NODE_ID=0

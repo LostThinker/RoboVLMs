@@ -62,5 +62,5 @@ class WeightedCombinedLoader(CombinedLoader):
             return batch
 
         batch_idx = 0  # Placeholder value, update as needed
-        # return batch, batch_idx, selected_loader_idx
-        return batch
+        return batch, batch_idx, selected_loader_idx
+        # return batch
