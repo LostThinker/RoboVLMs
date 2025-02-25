@@ -4,7 +4,7 @@ REPO_URL = "https://github.com/LostThinker/RoboVLMs.git"
 
 # 克隆 Git 仓库
 echo "Cloning the repository..."
-git clone $REPO_URL
+git clone -b co_finetune $REPO_URL
 
 echo "Create conda env"
 conda create -n robovlms python=3.10 -y
@@ -25,7 +25,7 @@ mv bridge_dataset bridge_orig
 
 cd ../..
 
-echo "download model"
+echo "Models need to be downloaded manually"
 git lfs install
 cd .vlms & git clone https://huggingface.co/Alpha-VLA/Paligemma
 cd ..
