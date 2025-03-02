@@ -1,4 +1,8 @@
 import os
+
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+os.environ['HF_HOME'] = '/data2/user/qianlong_dataset/hf_cache'
+
 import argparse
 import json
 from pathlib import Path
@@ -18,7 +22,7 @@ import torch.distributed as dist
 
 from robovlms.train.base_trainer import BaseTrainer
 from robovlms.data.datamodule.gr_datamodule import GRDataModule
-from robovlms.data.datamodule.co_train_datamodule import CoDataModule
+# from robovlms.data.datamodule.co_train_datamodule import CoDataModule
 from robovlms.data.data_utils import preprocess_image
 from robovlms.utils.setup_callback import SetupCallback
 
@@ -130,7 +134,7 @@ def experiment(variant):
         os.system(f"git clone {variant['model_url']} .vlms/{repo_name}")
         variant['model_path'] = ".vlms/" + repo_name
         variant['model_config'] = os.path.join(variant['model_path'], "config.json")
-    
+
     if variant["model"] == "kosmos":
         import transformers
 
@@ -144,7 +148,7 @@ def experiment(variant):
         import importlib
 
         importlib.reload(transformers)
-    
+
     model = BaseTrainer.from_checkpoint(
         model_load_path, variant.get("model_load_source", "torch"), variant
     )
@@ -153,10 +157,9 @@ def experiment(variant):
 
     _kwargs = {
         "model": model,
-        "datamodule": CoDataModule(
+        "datamodule": GRDataModule(
             variant["train_dataset"],
             variant["val_dataset"],
-            variant["coft_dataset"],
             variant["batch_size"],
             variant["num_workers"],
             tokenizer=model.model.tokenizer,
@@ -240,10 +243,10 @@ def load_config(config_file):
 def update_configs(configs, args):
     configs["raw_config_path"] = args["config"]
     configs["output_root"] = (
-        Path(configs["output_root"]) / configs["model"] / configs["task_name"]
+            Path(configs["output_root"]) / configs["model"] / configs["task_name"]
     )
     configs["log_root"] = (
-        Path(configs["log_root"]) / configs["model"] / configs["task_name"]
+            Path(configs["log_root"]) / configs["model"] / configs["task_name"]
     )
     configs["cache_root"] = Path(configs["cache_root"]) / configs["model"]
 
@@ -315,7 +318,7 @@ def parse_args():
     llm_parser.add_argument("--n_layer", default=None, type=int)
     llm_parser.add_argument("--n_head", default=None, type=int)
     llm_names = (
-        set(vars(parser.parse_known_args()[0]).keys()) - global_names - trainer_names
+            set(vars(parser.parse_known_args()[0]).keys()) - global_names - trainer_names
     )
 
     args = {}
@@ -353,7 +356,7 @@ def update_json_config(file_path, key, value):
         json.dump(config, f, indent=2)
 
 
-if __name__ == "__main__":
+def main():
     import os
 
     # os.environ['CUDA_LAUNCH_BLOCKING']="1"
@@ -370,3 +373,34 @@ if __name__ == "__main__":
 
     dist.init_process_group(backend="nccl")
     experiment(variant=configs)
+
+
+def debug():
+    import os
+    import sys
+
+    # os.environ['CUDA_LAUNCH_BLOCKING']="1"
+    os.environ['RANK'] = '0'
+    sys.argv = ["main.py",
+                "./configs/oxe_training/finetune_paligenmma_cont-lstm-post_full-ft_text_vision_wd-0_use-hand_ws-16_act-10_bridge_finetune_debug.json"]
+    args = parse_args()
+
+    args['exp_name'] = 'debug'
+    args[
+        'config'] = './configs/oxe_training/finetune_uform_cont-lstm-post_full-ft_text_vision_wd-0_use-hand_ws-16_act-10_bridge_finetune_debug.json'
+
+    # load config files
+    configs = load_config(args.get("config"))
+    configs = update_configs(configs, args)
+
+    os.environ['PL_DEEPSPEED_CONFIG_PATH'] = configs['deepspeed_config']
+
+    # Due to a conflict in deepspeed batch size setting.
+    update_json_config(configs['deepspeed_config'], "train_micro_batch_size_per_gpu", configs['batch_size'])
+
+    # dist.init_process_group(backend="nccl")
+    experiment(variant=configs)
+
+
+if __name__ == "__main__":
+    main()

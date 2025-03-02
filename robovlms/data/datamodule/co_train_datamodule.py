@@ -13,7 +13,7 @@ from robovlms.data.weighted_combined_loader import WeightedCombinedLoader
 import robovlms.data.samplers as gr_samplers
 from robovlms.utils.dist_train import get_rank, is_dist
 from robovlms.utils.common import collate_with_none
-from robovlms.data.coft_dataset import DataCollatorForCoFTDataset, build_coft_dataset
+from robovlms.data.coft_dataset import build_coft_dataset
 
 
 class CoDataModule(pl.LightningDataModule):
@@ -50,6 +50,64 @@ class CoDataModule(pl.LightningDataModule):
         elif "data_dir" in data_cfg and not os.path.isabs(data_cfg["data_dir"]):
             data_cfg["data_dir"] = os.path.join(self.data_root, data_cfg["data_dir"])
         return data_cfg
+
+    def _init_dataset(self, dataset_config, batch_size, num_workers, is_training=True):
+        dataset_config = self._check_data_path(dataset_config)
+
+        # avoid modification of the self attributes
+        dataset_config = copy.deepcopy(dataset_config)
+        dataset_type = dataset_config.pop("type")
+        # assert dataset_type in {'ConcatDataset', 'GRDataset', 'DiskCalvinDataset', 'DiskCalvinVideoDataset', 'Real_Dataset', 'VideoLLaVADataset'}
+        dataset_config["is_training"] = is_training
+        sampler_config = dataset_config.pop("sampler", None)
+
+        dataset_config.update(self.kwargs)
+
+        # mode = dataset_config['data_dir'].split('/')[-1]
+        # with open(f'dataset-{mode}.pkl', 'wb') as file:
+        #     import pickle as pkl
+        #     pkl.dump(dataset_config, file)
+
+        dataset = getattr(robovlms.data, dataset_type)(**dataset_config)
+
+        sampler_cls = None
+        if sampler_config is not None:
+            sampler_type = sampler_config.pop("type")
+            sampler_cls = getattr(gr_samplers, sampler_type, None)
+
+        if sampler_cls is not None:
+            # FIXME: this is_training is not in every sampler's arg list.
+            #   Consider to use inspect package to fix this.
+            sampler_config["is_training"] = is_training
+            sampler_config["dataset"] = dataset
+            sampler = sampler_cls(**sampler_config)
+        elif is_dist():
+            # default to be distributed sampler
+            sampler = DistributedSampler(
+                dataset,
+                shuffle=True,
+                drop_last=False,
+                seed=self.kwargs.get("seed", 123),
+            )
+        elif is_training:
+            sampler = RandomSampler(dataset)
+        else:
+            sampler = SequentialSampler(dataset)
+
+        data_loader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            sampler=sampler,
+            drop_last=True,
+            collate_fn=(
+                dataset.collater if hasattr(dataset, "collater") else collate_with_none
+            ),
+            prefetch_factor=3,
+            pin_memory=True,
+        )
+
+        return dataset, data_loader
 
     def _init_iterable_dataset(
             self, dataset_config, batch_size, num_workers, is_training=True

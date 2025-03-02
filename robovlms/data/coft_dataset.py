@@ -1,8 +1,4 @@
 import os
-
-os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
-os.environ['HF_HOME'] = '/data2/user/qianlong_dataset/hf_cache'
-
 import datasets
 import random
 import copy
@@ -161,26 +157,32 @@ def build_coft_dataset(dataset_name_list, model_name, tokenizer, image_processor
     print(f"Co-train train_dataset length: {len(merge_train_dataset)}")
     print(f"Co-train val_dataset length: {len(merge_val_dataset)}")
 
-    merge_train_dataset = CoFTDataset(model_name, merge_train_dataset, tokenizer, image_processor)
-    merge_val_dataset = CoFTDataset(model_name, merge_val_dataset, tokenizer, image_processor)
+    merge_train_dataset = CoTrainDataset(model_name, merge_train_dataset, tokenizer, image_processor)
+    merge_val_dataset = CoTrainDataset(model_name, merge_val_dataset, tokenizer, image_processor)
 
     return merge_train_dataset, merge_val_dataset
 
 
-class CoFTDataset(Dataset):
+class CoTrainDataset(Dataset):
     def __init__(
             self,
             model_name,
-            dataset,
+            data_dir,
             tokenizer,
-            image_processor
+            image_fn,
+            shuffle_seed,
+            split,
+            **kwargs
     ):
-        super(CoFTDataset, self).__init__()
+        super(CoTrainDataset, self).__init__()
 
         self.model_name = model_name
-        self.dataset = dataset
+        self.data_dir = data_dir
         self.tokenizer = tokenizer
-        self.image_processor = image_processor
+        self.image_processor = image_fn
+
+        self.dataset = build_vlm_dataset(data_dir)[split]
+        self.dataset = self.dataset.shuffle(seed=shuffle_seed)
 
     def __len__(self):
         return len(self.dataset)
@@ -239,15 +241,9 @@ class CoFTDataset(Dataset):
 
         return input_ids, labels
 
-
-@dataclass
-class DataCollatorForCoFTDataset(object):
-    tokenizer: transformers.PreTrainedTokenizer
-    model_name: str
-
-    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+    def collater(self, sample):
         input_ids, labels, images = tuple(
-            [instance[key] for instance in instances] for key in ("input_ids", "labels", "image")
+            [s[key] for s in sample] for key in ("input_ids", "labels", "image")
         )
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
@@ -279,3 +275,43 @@ class DataCollatorForCoFTDataset(object):
         batch["text_mask"] = batch["attention_mask"]
 
         return batch
+
+# @dataclass
+# class DataCollatorForCoFTDataset(object):
+#     tokenizer: transformers.PreTrainedTokenizer
+#     model_name: str
+#
+#     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+#         input_ids, labels, images = tuple(
+#             [instance[key] for instance in instances] for key in ("input_ids", "labels", "image")
+#         )
+#         input_ids = torch.nn.utils.rnn.pad_sequence(
+#             input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
+#         )
+#         labels = torch.nn.utils.rnn.pad_sequence(
+#             labels, batch_first=True, padding_value=IGNORE_INDEX
+#         )
+#
+#         images = torch.concatenate(images, dim=0)
+#
+#         input_ids = input_ids[:, : self.tokenizer.model_max_length]
+#         labels = labels[:, : self.tokenizer.model_max_length]
+#
+#         batch = dict(
+#             images=images,
+#             input_ids=input_ids,
+#             labels=labels,
+#             attention_mask=input_ids.ne(self.tokenizer.pad_token_id),
+#         )
+#
+#         batch["data_source"] = "vl_pretrain"
+#
+#         batch["rgb"] = batch.get("images", None)
+#         batch["instr_and_action_ids"] = batch["input_ids"]
+#         batch["instr_and_action_mask"] = batch["attention_mask"]
+#         batch["instr_and_action_labels"] = batch["labels"]
+#
+#         batch["text"] = batch["input_ids"]
+#         batch["text_mask"] = batch["attention_mask"]
+#
+#         return batch
