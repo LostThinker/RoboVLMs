@@ -22,7 +22,7 @@
   "cap_loss_ratio": 0.05,
   "fwd_loss_ratio": 0,
   "seed": 123,
-  "batch_size": 1,
+  "batch_size": 4,
   "num_workers": 16,
   "data_scale": 1,
   "optimizer": "adam",
@@ -55,11 +55,11 @@
     "predict_forward": false,
     "predict_forward_hand": false,
     "predict_caption": false,
-    "train_vision": false,
+    "train_vision": true,
     "bits": -1,
-    "freeze_mm_mlp_adapter": true,
-    "freeze_backbone": true,
-    "freeze_resampler": true,
+    "freeze_mm_mlp_adapter": false,
+    "freeze_backbone": false,
+    "freeze_resampler": false,
     "tune_mm_mlp_adapter": false,
     "mm_use_im_start_end": false,
     "mm_use_im_patch_token": false,
@@ -123,8 +123,9 @@
   },
   "train_dataset": [
     {
-      "type": "OpenVLADataset",
+      "type": "ECoTDataset",
       "data_root_dir": "/data2/user/qianlong_dataset/robot_dataset/robot-dataset/open-x-embodiment/robotics",
+      "reasoning_data_dir": "/data2/user/qianlong_dataset/robot_dataset/robot-dataset/ecot/embodied_features_bridge.json",
       "model_name": "uform",
       "image_aug": false,
       "mode": "train",
@@ -141,12 +142,29 @@
       "mode": "train",
       "shuffle_seed": 42,
       "split": "train"
+    },
+    {
+      "type": "CoTrainDataset",
+      "data_dir": "jxu124/invig",
+      "model_name": "uform",
+      "mode": "train",
+      "shuffle_seed": 42,
+      "split": "train"
+    },
+    {
+      "type": "CoTrainDataset",
+      "data_dir": "HuggingFaceM4/VisDial",
+      "model_name": "uform",
+      "mode": "train",
+      "shuffle_seed": 42,
+      "split": "train"
     }
   ],
   "val_dataset": [
     {
-      "type": "OpenVLADataset",
+      "type": "ECoTDataset",
       "data_root_dir": "/data2/user/qianlong_dataset/robot_dataset/robot-dataset/open-x-embodiment/robotics",
+      "reasoning_data_dir": "/data2/user/qianlong_dataset/robot_dataset/robot-dataset/ecot/embodied_features_bridge.json",
       "data_dir": "bridge",
       "model_name": "uform",
       "mode": "train",
@@ -163,12 +181,30 @@
       "mode": "train",
       "shuffle_seed": 42,
       "split": "validation"
+    },
+    {
+      "type": "CoTrainDataset",
+      "data_dir": "jxu124/invig",
+      "model_name": "uform",
+      "mode": "train",
+      "shuffle_seed": 42,
+      "split": "validation"
+    },
+    {
+      "type": "CoTrainDataset",
+      "data_dir": "HuggingFaceM4/VisDial",
+      "model_name": "uform",
+      "mode": "train",
+      "shuffle_seed": 42,
+      "split": "validation"
     }
   ],
   "norm_action": true,
   "norm_min": -0.65,
   "norm_max": 0.65,
   "train_weights": [
+    9,
+    1,
     1,
     1
   ]
