@@ -140,6 +140,9 @@ def build_vlm_dataset(dataset_name):
     dataset = load_dataset(dataset_name).map(map_fn, batched=True, batch_size=64, num_proc=16).select_columns(
         ["image", "conversations"])
 
+    print(f"{dataset_name} train_dataset length: {len(dataset['train'])}")
+    print(f"{dataset_name} val_dataset length: {len(dataset['validation'])}")
+
     return dataset
 
 
@@ -252,7 +255,8 @@ class CoTrainDataset(Dataset):
             labels, batch_first=True, padding_value=IGNORE_INDEX
         )
 
-        images = torch.concatenate(images, dim=0)
+        # images = torch.concatenate(images, dim=0)
+        images = torch.stack(images)
 
         input_ids = input_ids[:, : self.tokenizer.model_max_length]
         labels = labels[:, : self.tokenizer.model_max_length]
