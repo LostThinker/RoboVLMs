@@ -179,11 +179,20 @@ def make_dataset_from_rlds(
                 )
             task["language_instruction"] = traj.pop(language_key)
 
+        file_name = traj["traj_metadata"]["episode_metadata"]["file_path"][0]
+        episode_id = traj["traj_metadata"]["episode_metadata"]["episode_id"][0]
+
+        file_names = tf.repeat(file_name, traj_len)
+        episode_ids = tf.as_string(tf.repeat(episode_id, traj_len))
+        indices = tf.as_string(tf.range(traj_len))
+        reasoning_index = file_names + "_" + episode_ids + "_" + indices
+
         traj = {
             "observation": new_obs,
             "task": task,
             "action": tf.cast(traj["action"], tf.float32),
             "dataset_name": tf.repeat(name, traj_len),
+            "reasoning_index": tf.as_string(reasoning_index)
         }
 
         if absolute_action_mask is not None:

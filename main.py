@@ -357,7 +357,6 @@ def update_json_config(file_path, key, value):
 
 
 def main():
-    import os
 
     # os.environ['CUDA_LAUNCH_BLOCKING']="1"
     args = parse_args()
@@ -371,7 +370,7 @@ def main():
     # Due to a conflict in deepspeed batch size setting.
     update_json_config(configs['deepspeed_config'], "train_micro_batch_size_per_gpu", configs['batch_size'])
 
-    dist.init_process_group(backend="nccl")
+    # dist.init_process_group(backend="nccl")
     experiment(variant=configs)
 
 

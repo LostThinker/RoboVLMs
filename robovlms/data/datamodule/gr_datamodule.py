@@ -10,6 +10,8 @@ from torch.utils.data import SequentialSampler, RandomSampler
 
 import robovlms
 from robovlms.data.weighted_combined_loader import WeightedCombinedLoader
+# from lightning.pytorch.utilities.combined_loader import CombinedLoader as WeightedCombinedLoader
+
 import robovlms.data.samplers as gr_samplers
 from robovlms.utils.dist_train import get_rank, is_dist
 from robovlms.utils.common import collate_with_none
@@ -17,13 +19,13 @@ from robovlms.utils.common import collate_with_none
 
 class GRDataModule(pl.LightningDataModule):
     def __init__(
-        self,
-        train_dataset,
-        val_dataset,
-        batch_size,
-        num_workers,
-        data_root="",
-        **kwargs,
+            self,
+            train_dataset,
+            val_dataset,
+            batch_size,
+            num_workers,
+            data_root="",
+            **kwargs,
     ):
         super().__init__()
         self.train_dataset_config = train_dataset
@@ -106,7 +108,7 @@ class GRDataModule(pl.LightningDataModule):
         return dataset, data_loader
 
     def _init_iterable_dataset(
-        self, dataset_config, batch_size, num_workers, is_training=True
+            self, dataset_config, batch_size, num_workers, is_training=True
     ):
         dataset_config = self._check_data_path(dataset_config)
 
@@ -152,8 +154,8 @@ class GRDataModule(pl.LightningDataModule):
             assert isinstance(batch_size, int)
             assert isinstance(num_workers, int)
             if (
-                dataset_type in {"ImageTextDataset", "RTXDataset"}
-                or "OpenVLA" in dataset_type
+                    dataset_type in {"ImageTextDataset", "RTXDataset"}
+                    or "OpenVLA" in dataset_type or "ECoT" in dataset_type
             ):
                 # if dataset_type in {'ImageTextDataset', 'RTXDataset'}:
                 return self._init_iterable_dataset(
