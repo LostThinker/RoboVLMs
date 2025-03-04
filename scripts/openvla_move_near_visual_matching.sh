@@ -13,7 +13,7 @@ declare -a urdf_version_arr=(None "recolor_tabletop_visual_matching_1" "recolor_
 
 ckpt_path=$1
 config_path=$2
-source activate robovlm
+conda activate robovlms
 # for ckpt_path in "${arr[@]}"; do echo "$ckpt_path"; done
 
 

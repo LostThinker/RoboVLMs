@@ -4,7 +4,8 @@ from .it_dataset import ImageTextDataset
 from .calvin_dataset import DiskCalvinDataset
 from .vid_llava_dataset import VideoLLaVADataset
 from .openvla_action_prediction_dataset import OpenVLADataset
-from .coft_dataset import CoFTDataset
+from .coft_dataset import CoTrainDataset
+from .reasoning_dataset import ECoTDataset
 
 __all__ = [
     "DummyDataset",
@@ -13,5 +14,6 @@ __all__ = [
     "VideoLLaVADataset",
     "DiskCalvinDataset",
     "OpenVLADataset",
-    "CoFTDataset"
+    "CoTrainDataset",
+    "ECoTDataset"
 ]

@@ -14,14 +14,20 @@ from robovlms.data.prompting.base_prompter import PromptBuilder
 
 class PhiPromptBuilder(PromptBuilder):
     def __init__(
-        self, model_family: str, system_prompt: Optional[str] = None, eos=None, bos=None
+            self, model_family: str, system_prompt: Optional[str] = None, eos=None, bos=None
     ) -> None:
         super().__init__(model_family, system_prompt, eos, bos)
 
         # Note =>> Phi Tokenizer is an instance of `CodeGenTokenizer(Fast)`
         #      =>> By default, does *not* append <BOS> / <EOS> tokens --> we handle that here (IMPORTANT)!
-        if self.bos is None and self.eos is None:
-            self.bos, self.eos = "<|endoftext|>", "<|endoftext|>"
+        if self.bos is None:
+            self.bos = "<|endoftext|>"
+        if self.eos is None:
+            self.eos = "<|endoftext|>"
+
+        #
+        # if self.bos is None and self.eos is None:
+        #     self.bos, self.eos = "<|endoftext|>", "<|endoftext|>"
 
         # Get role-specific "wrap" functions
         #   =>> Note that placement of <bos>/<eos> were based on experiments generating from Phi-2 in Input/Output mode

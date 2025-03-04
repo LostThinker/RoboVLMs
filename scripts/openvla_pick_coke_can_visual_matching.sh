@@ -18,7 +18,7 @@ rgb_overlay_path=real_inpainting/google_coke_can_real_eval_1.png
 
 ckpt_path=$1
 config_path=$2
-source activate robovlm
+conda activate robovlms
 
 for urdf_version in "${urdf_version_arr[@]}";
 

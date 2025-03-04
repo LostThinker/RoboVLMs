@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+.DS_Store
 
 # C extensions
 *.so
@@ -193,6 +194,7 @@ results_v*/
 # bash/
 real_inpainting/
 # configs/
-
+runs/
+.vlms/
 .DS_Store
 .DS_Store?

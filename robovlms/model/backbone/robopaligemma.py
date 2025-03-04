@@ -5,7 +5,7 @@ from robovlms.model.backbone.base_backbone import BaseRoboVLM, load_config, deep
 class RoboPaligemma(BaseRoboVLM):
     @property
     def image_processor(self):
-        return self.model.processor
+        return self.processor
 
     @property
     def hidden_size(self):

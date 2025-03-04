@@ -12,7 +12,7 @@ PlaceIntoClosedTopDrawerCustomInScene-v0
 
 ckpt_path=$1
 config_path=$2
-source activate robovlm
+conda activate robovlms
 # URDF variations
 declare -a urdf_version_arr=("recolor_cabinet_visual_matching_1" "recolor_tabletop_visual_matching_1" "recolor_tabletop_visual_matching_2" None)
 

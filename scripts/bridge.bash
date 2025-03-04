@@ -1,8 +1,8 @@
 # shader_dir=rt means that we turn on ray-tracing rendering; this is quite crucial for the open / close drawer task as policies often rely on shadows to infer depth
-
+policy_model=robovlm
 ckpt_path=$1
 config_path=$2
-source activate robovlm
+conda activate robovlms
 
 scene_name=bridge_table_1_v1
 robot=widowx

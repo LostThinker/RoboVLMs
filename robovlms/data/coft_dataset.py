@@ -1,8 +1,4 @@
 import os
-
-os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
-os.environ['HF_HOME'] = '/data2/user/qianlong_dataset/hf_cache'
-
 import datasets
 import random
 import copy
@@ -33,76 +29,119 @@ import robovlms.data.conversation as conversation_lib
 from robovlms.data.data_utils import get_prompt_builder
 
 
-def scienceqa_map(sample):
-    image = sample['image']
-    if image is None:
-        image = Image.new('RGB', (224, 224), (0, 0, 0))
-        sample['image'] = image
-
-    question = sample['question']
-    choices = sample['choices']
-    solution = sample['solution']
-    hint = sample["hint"]
-    lecture = sample["lecture"]
-    answer = sample['answer']
-
-    prompt = f"Q: {question}\n"
-    for i, choice in enumerate(choices):
-        prompt += f"Choice: {chr(65 + i)}. {choice}"
-
-    if hint:
-        prompt += f"\nHint: {hint}"
-    if lecture:
-        prompt += f"\nLecture: {lecture}"
-
-    target = f'{solution} The answer is {chr(65 + answer)}: {choices[answer]}'
-
-    sample['conversations'] = [
-        {"from": 'human', "value": prompt},
-        {"from": "gpt", "value": target},
-    ]
-
-    return sample
-
-
-def invig_map(sample):
-    image = sample['image']
-    dialog = sample['ref_list'][0]['dialog']
+def scienceqa_map_batch(batch):
+    # 初始化用于存储处理后数据的列表
     conversations = []
-    for d in dialog:
-        conversations.append({"from": 'human', "value": d[0]})
-        conversations.append({"from": "gpt", "value": d[1]})
+    images = []
 
-    sample['conversations'] = conversations
+    # 遍历批处理中的每个样本
+    for i in range(len(batch['question'])):
+        image = batch['image'][i]
+        if image is None:
+            image = Image.new('RGB', (224, 224), (0, 0, 0))
+        image = image.convert('RGB')
+        images.append(image)
 
-    return sample
+        question = batch['question'][i]
+        choices = batch['choices'][i]
+        solution = batch['solution'][i]
+        hint = batch["hint"][i]
+        lecture = batch["lecture"][i]
+        answer = batch['answer'][i]
+
+        prompt = f"Q: {question}\n"
+        for j, choice in enumerate(choices):
+            prompt += f"Choice: {chr(65 + j)}. {choice}"
+
+        if hint:
+            prompt += f"\nHint: {hint}"
+        if lecture:
+            prompt += f"\nLecture: {lecture}"
+
+        target = f'{solution} The answer is {chr(65 + answer)}: {choices[answer]}'
+
+        conversation = [
+            {"from": 'human', "value": prompt},
+            {"from": "gpt", "value": target},
+        ]
+        conversations.append(conversation)
+
+    # 将处理后的数据更新到批处理字典中
+    batch['image'] = images
+    batch['conversations'] = conversations
+
+    return batch
 
 
-def visdial_map(sample):
-    image = sample['image']
-    caption = sample['caption']
-    dialog = sample['dialog']
+def invig_map_batch(batch):
+    # 初始化存储处理后图像和对话的列表
+    images = []
+    all_conversations = []
 
-    conversations = []
-    for d in dialog:
-        conversations.append({"from": 'human', "value": d[0]})
-        conversations.append({"from": "gpt", "value": d[1]})
+    # 遍历批处理中的每个样本
+    for i in range(len(batch['image'])):
+        # 处理图像
+        image = batch['image'][i]
+        image = image.convert('RGB')
+        images.append(image)
 
-    sample['conversations'] = conversations
+        # 处理对话
+        dialog = batch['ref_list'][i][0]['dialog']
+        conversations = []
+        for d in dialog:
+            conversations.append({"from": 'human', "value": d[0]})
+            conversations.append({"from": "gpt", "value": d[1]})
+        all_conversations.append(conversations)
 
-    return sample
+    # 将处理后的数据更新到批处理字典中
+    batch['image'] = images
+    batch['conversations'] = all_conversations
+
+    return batch
+
+
+def visdial_map_batch(batch):
+    # 用于存储处理后的图像
+    processed_images = []
+    # 用于存储处理后的对话列表
+    all_conversations = []
+
+    # 遍历批次中的每个样本
+    for i in range(len(batch['image'])):
+        # 处理图像
+        image = batch['image'][i]
+        image = image.convert('RGB')
+        processed_images.append(image)
+
+        # 提取对话信息
+        dialog = batch['dialog'][i]
+        conversations = []
+        for d in dialog:
+            conversations.append({"from": 'human', "value": d[0]})
+            conversations.append({"from": "gpt", "value": d[1]})
+        all_conversations.append(conversations)
+
+    # 更新批次数据
+    batch['image'] = processed_images
+    batch['conversations'] = all_conversations
+
+    return batch
 
 
 DATASET_MAP = {
-    'ScienceQA': scienceqa_map,
-    'invig': invig_map,
-    'VisDial': visdial_map,
+    'ScienceQA': scienceqa_map_batch,
+    'invig': invig_map_batch,
+    'VisDial': visdial_map_batch,
 }
 
 
 def build_vlm_dataset(dataset_name):
     map_fn = DATASET_MAP[dataset_name.split('/')[-1]]
-    dataset = load_dataset(dataset_name).map(map_fn)
+    dataset = load_dataset(dataset_name).map(map_fn, batched=True, batch_size=64, num_proc=16).select_columns(
+        ["image", "conversations"])
+
+    print(f"{dataset_name} train_dataset length: {len(dataset['train'])}")
+    print(f"{dataset_name} val_dataset length: {len(dataset['validation'])}")
 
     return dataset
 
@@ -118,45 +157,35 @@ def build_coft_dataset(dataset_name_list, model_name, tokenizer, image_processor
     merge_train_dataset = concatenate_datasets(train_datasets).shuffle(seed=42)
     merge_val_dataset = concatenate_datasets(val_datasets).shuffle(seed=42)
 
-    merge_train_dataset = CoFTDataset(model_name, merge_train_dataset, tokenizer, image_processor)
-    merge_val_dataset = CoFTDataset(model_name, merge_val_dataset, tokenizer, image_processor)
+    print(f"Co-train train_dataset length: {len(merge_train_dataset)}")
+    print(f"Co-train val_dataset length: {len(merge_val_dataset)}")
+
+    merge_train_dataset = CoTrainDataset(model_name, merge_train_dataset, tokenizer, image_processor)
+    merge_val_dataset = CoTrainDataset(model_name, merge_val_dataset, tokenizer, image_processor)
 
     return merge_train_dataset, merge_val_dataset
 
 
-def get_coft_dataset(model_name, tokenizer, image_processor):
-    sqa_ds = load_dataset("derek-thomas/ScienceQA",
-                          cache_dir='/data2/user/qianlong_dataset/robot_dataset/vlm-co-training/ScienceQA').map(
-        scienceqa_map).select_columns(["image", "conversations"])
-    invig_ds = load_dataset("jxu124/invig",
-                            cache_dir='/data2/user/qianlong_dataset/robot_dataset/vlm-co-training/invig').map(
-        invig_map).select_columns(["image", "conversations"])
-    ds = load_dataset("HuggingFaceM4/VisDial",
-                      cache_dir='/data2/user/qianlong_dataset/robot_dataset/vlm-co-training/hf_visdial').map(
-        visdial_map).select_columns(["image", "conversations"])
-    train_dataset = concatenate_datasets([sqa_ds['train'], invig_ds['train']])
-    val_dataset = concatenate_datasets([sqa_ds['validation'], invig_ds['validation']])
-
-    train_dataset = CoFTDataset(model_name, train_dataset, tokenizer, image_processor)
-    val_dataset = CoFTDataset(model_name, val_dataset, tokenizer, image_processor)
-
-    return train_dataset, val_dataset
-
-
-class CoFTDataset(Dataset):
+class CoTrainDataset(Dataset):
     def __init__(
             self,
             model_name,
-            dataset,
+            data_dir,
             tokenizer,
-            image_processor
+            image_fn,
+            shuffle_seed,
+            split,
+            **kwargs
     ):
-        super(CoFTDataset, self).__init__()
+        super(CoTrainDataset, self).__init__()
 
         self.model_name = model_name
-        self.dataset = dataset
+        self.data_dir = data_dir
         self.tokenizer = tokenizer
-        self.image_processor = image_processor
+        self.image_processor = image_fn
+
+        self.dataset = build_vlm_dataset(data_dir)[split]
+        self.dataset = self.dataset.shuffle(seed=shuffle_seed)
 
     def __len__(self):
         return len(self.dataset)
@@ -164,7 +193,7 @@ class CoFTDataset(Dataset):
     def __getitem__(self, idx):
         item = self.dataset[idx]
         # image = Image.fromarray(item["image"]).convert("RGB")
-        image = self.image_processor(item['image'])
+        image = self.image_processor([item['image']])
 
         conversations = item['conversations']
         input_ids, labels = self.preprocess_conversation(conversations)
@@ -215,15 +244,9 @@ class CoFTDataset(Dataset):
 
         return input_ids, labels
 
-
-@dataclass
-class DataCollatorForCoFTDataset(object):
-    tokenizer: transformers.PreTrainedTokenizer
-    model_name: str
-
-    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+    def collater(self, sample):
         input_ids, labels, images = tuple(
-            [instance[key] for instance in instances] for key in ("input_ids", "labels", "image")
+            [s[key] for s in sample] for key in ("input_ids", "labels", "image")
         )
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
@@ -232,7 +255,8 @@ class DataCollatorForCoFTDataset(object):
             labels, batch_first=True, padding_value=IGNORE_INDEX
         )
 
-        images = torch.stack(images, dim=0)
+        # images = torch.concatenate(images, dim=0)
+        images = torch.stack(images)
 
         input_ids = input_ids[:, : self.tokenizer.model_max_length]
         labels = labels[:, : self.tokenizer.model_max_length]
@@ -256,129 +280,42 @@ class DataCollatorForCoFTDataset(object):
 
         return batch
 
-
-# def scienceqa_map(sample):
-#     image = sample['image']
-#     if image is None:
-#         image = Image.new('RGB', (224, 224), (0, 0, 0))
-#         sample['image'] = image
+# @dataclass
+# class DataCollatorForCoFTDataset(object):
+#     tokenizer: transformers.PreTrainedTokenizer
+#     model_name: str
 #
-#     question = sample['question']
-#     choices = sample['choices']
-#     solution = sample['solution']
-#     hint = sample["hint"]
-#     lecture = sample["lecture"]
-#     answer = sample['answer']
+#     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+#         input_ids, labels, images = tuple(
+#             [instance[key] for instance in instances] for key in ("input_ids", "labels", "image")
+#         )
+#         input_ids = torch.nn.utils.rnn.pad_sequence(
+#             input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
+#         )
+#         labels = torch.nn.utils.rnn.pad_sequence(
+#             labels, batch_first=True, padding_value=IGNORE_INDEX
+#         )
 #
-#     prompt = f"Q: {question}\n"
-#     for i, choice in enumerate(choices):
-#         prompt += f"Choice: {chr(65 + i)}. {choice}"
+#         images = torch.concatenate(images, dim=0)
 #
-#     if hint:
-#         prompt += f"\nHint: {hint}"
-#     if lecture:
-#         prompt += f"\nLecture: {lecture}"
+#         input_ids = input_ids[:, : self.tokenizer.model_max_length]
+#         labels = labels[:, : self.tokenizer.model_max_length]
 #
-#     target = f'{solution} The answer is {chr(65 + answer)}: {choices[answer]}'
+#         batch = dict(
+#             images=images,
+#             input_ids=input_ids,
+#             labels=labels,
+#             attention_mask=input_ids.ne(self.tokenizer.pad_token_id),
+#         )
 #
-#     sample['conversations'] = [
-#         {"from": 'human', "value": prompt},
-#         {"from": "gpt", "value": target},
-#     ]
+#         batch["data_source"] = "vl_pretrain"
 #
-#     return sample
+#         batch["rgb"] = batch.get("images", None)
+#         batch["instr_and_action_ids"] = batch["input_ids"]
+#         batch["instr_and_action_mask"] = batch["attention_mask"]
+#         batch["instr_and_action_labels"] = batch["labels"]
 #
+#         batch["text"] = batch["input_ids"]
+#         batch["text_mask"] = batch["attention_mask"]
 #
-# def invig_map(sample):
-#     image = sample['image']
-#     dialog = sample['ref_list'][0]['dialog']
-#     conversations = []
-#     for d in dialog:
-#         conversations.append({"from": 'human', "value": d[0]})
-#         conversations.append({"from": "gpt", "value": d[1]})
-#
-#     sample['conversations'] = conversations
-#
-#     return sample
-#
-#
-# def visdial_map(sample):
-#     image = sample['image']
-#     caption = sample['caption']
-#     dialog = sample['dialog']
-#
-#     conversations = []
-#     for d in dialog:
-#         conversations.append({"from": 'human', "value": d[0]})
-#         conversations.append({"from": "gpt", "value": d[1]})
-#
-#     sample['conversations'] = conversations
-#
-#     return sample
-
-
-# def test_scienceqa():
-#     ds = load_dataset("derek-thomas/ScienceQA",
-#                       cache_dir='/data2/user/qianlong_dataset/robot_dataset/vlm-co-training/ScienceQA').map(
-#         scienceqa_map).select_columns(["image", "conversations"])
-#     # ds.cleanup_cache_files()
-#     data = ds['validation'][:5]
-#     print(data.keys())
-#
-#
-# def test_invig():
-#     ds = load_dataset("jxu124/invig",
-#                       cache_dir='/data2/user/qianlong_dataset/robot_dataset/vlm-co-training/invig').map(
-#         invig_map).select_columns(["image", "conversations"])
-#     data = ds['train'][:1]
-#     print(data.keys())
-#     print(data)
-#
-#
-# def test_visdialog():
-#     ds = load_dataset("HuggingFaceM4/VisDial", split='train',
-#                       cache_dir='/data2/user/qianlong_dataset/robot_dataset/vlm-co-training/hf_visdial').map(
-#         visdial_map).select_columns(["image", "conversations"])
-#
-#     data = ds[:1]
-#     print(data.keys())
-#     print(data)
-
-
-# def concat_dataset():
-#     sqa_ds = load_dataset("derek-thomas/ScienceQA",
-#                           cache_dir='/data2/user/qianlong_dataset/robot_dataset/vlm-co-training/ScienceQA').map(
-#         scienceqa_map).select_columns(["image", "conversations"])
-#     invig_ds = load_dataset("jxu124/invig",
-#                             cache_dir='/data2/user/qianlong_dataset/robot_dataset/vlm-co-training/invig').map(
-#         invig_map).select_columns(["image", "conversations"])
-#
-#     merged_dataset = concatenate_datasets([sqa_ds, invig_ds])
-#     data = merged_dataset['train'][:1]
-#     print(data)
-#
-#
-# def make_concat_dataset(tokenizer, data_args):
-#     sqa_ds = load_dataset("derek-thomas/ScienceQA",
-#                           cache_dir='/data2/user/qianlong_dataset/robot_dataset/vlm-co-training/ScienceQA').map(
-#         scienceqa_map).select_columns(["image", "conversations"])
-#     invig_ds = load_dataset("jxu124/invig",
-#                             cache_dir='/data2/user/qianlong_dataset/robot_dataset/vlm-co-training/invig').map(
-#         invig_map).select_columns(["image", "conversations"])
-#     train_dataset = concatenate_datasets([sqa_ds['train'], invig_ds['train']])
-#
-#     train_dataset = CoFTDataset(train_dataset, tokenizer, data_args)
-#     data_collator = DataCollatorForCoFTDataset(tokenizer)
-#
-#     from torch.utils.data import DataLoader
-#
-#     dataloader = DataLoader(train_dataset, batch_size=2, collate_fn=data_collator)
-#
-#     return dataloader
-
-
-# if __name__ == '__main__':
-#     # test_invig()
-#     # test_scienceqa()
-#     test_visdialog()
-#     # concat_dataset()
+#         return batch

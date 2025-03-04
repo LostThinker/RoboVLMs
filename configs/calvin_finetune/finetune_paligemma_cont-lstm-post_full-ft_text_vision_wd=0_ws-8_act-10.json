@@ -38,8 +38,9 @@
     "model_load_path": null,
     "model_load_source": "torch",
     "resume": null,
-    "model_path": ".vlms/VLMs/paligemma-3b-pt-224",
-    "model_config": ".vlms/VLMs/paligemma-3b-pt-224/config.json",
+    "model_path": ".vlms/paligemma-3b-pt-224",
+    "model_config": ".vlms/paligemma-3b-pt-224/config.json",
+    "deepspeed_config": "configs/deepspeed/config.json",
     "train_setup": {
         "precision": "bf16",
         "predict_action": true,

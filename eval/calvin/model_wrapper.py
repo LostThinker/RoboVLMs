@@ -9,7 +9,7 @@ import functools
 
 from lightning.pytorch.trainer import Trainer
 
-from eval_utils import init_trainer_config, euler2rotm, rotm2euler
+from eval.calvin.eval_utils import init_trainer_config, euler2rotm, rotm2euler
 from robovlms.train.base_trainer import BaseTrainer
 from robovlms.utils.model_utils import build_tokenizer
 from robovlms.data.datamodule.gr_datamodule import GRDataModule
@@ -252,7 +252,7 @@ class CustomModel:
             gripper_x = self.image_preprocess([gripper]).unsqueeze(0)
             gripper_x = gripper_x.to(self.device).to(self.dtype)
 
-        if self.self.configs["act_head"].get("history_type", "post") == "pre":
+        if self.configs["act_head"].get("history_type", "post") == "pre":
             self.add_element_to_queue(self.vision_queue, image_x)
             image_x, _ = self.get_history(self.vision_queue, pad="first")
             image_x = torch.concatenate(image_x, dim=1)

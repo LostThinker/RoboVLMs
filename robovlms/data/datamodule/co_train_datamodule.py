@@ -13,23 +13,7 @@ from robovlms.data.weighted_combined_loader import WeightedCombinedLoader
 import robovlms.data.samplers as gr_samplers
 from robovlms.utils.dist_train import get_rank, is_dist
 from robovlms.utils.common import collate_with_none
-from robovlms.data.coft_dataset import DataCollatorForCoFTDataset, build_coft_dataset
-
-
-class CoFTCombinedDataset(Dataset):
-    def __init__(self, vlm_dataset, robot_dataset):
-        self.vlm_dataset = vlm_dataset
-        self.robot_dataset = robot_dataset
-
-    def __len__(self):
-        # 返回数据集的最小长度，确保两个数据集的样本数量匹配
-        return min(len(self.vlm_dataset), len(self.robot_dataset))
-
-    def __getitem__(self, idx):
-        # 从两个数据集中获取数据，并返回它们的组合
-        vlm_sample = self.vlm_dataset[idx]
-        robot_sample = self.robot_dataset[idx]
-        return vlm_sample, robot_sample
+from robovlms.data.coft_dataset import build_coft_dataset
 
 
 class CoDataModule(pl.LightningDataModule):
@@ -55,6 +39,7 @@ class CoDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.kwargs = kwargs
+        self.init_vlm_data_once = False
 
     def _check_data_path(self, data_cfg):
         print(self.data_root)
@@ -65,6 +50,64 @@ class CoDataModule(pl.LightningDataModule):
         elif "data_dir" in data_cfg and not os.path.isabs(data_cfg["data_dir"]):
             data_cfg["data_dir"] = os.path.join(self.data_root, data_cfg["data_dir"])
         return data_cfg
+
+    def _init_dataset(self, dataset_config, batch_size, num_workers, is_training=True):
+        dataset_config = self._check_data_path(dataset_config)
+
+        # avoid modification of the self attributes
+        dataset_config = copy.deepcopy(dataset_config)
+        dataset_type = dataset_config.pop("type")
+        # assert dataset_type in {'ConcatDataset', 'GRDataset', 'DiskCalvinDataset', 'DiskCalvinVideoDataset', 'Real_Dataset', 'VideoLLaVADataset'}
+        dataset_config["is_training"] = is_training
+        sampler_config = dataset_config.pop("sampler", None)
+
+        dataset_config.update(self.kwargs)
+
+        # mode = dataset_config['data_dir'].split('/')[-1]
+        # with open(f'dataset-{mode}.pkl', 'wb') as file:
+        #     import pickle as pkl
+        #     pkl.dump(dataset_config, file)
+
+        dataset = getattr(robovlms.data, dataset_type)(**dataset_config)
+
+        sampler_cls = None
+        if sampler_config is not None:
+            sampler_type = sampler_config.pop("type")
+            sampler_cls = getattr(gr_samplers, sampler_type, None)
+
+        if sampler_cls is not None:
+            # FIXME: this is_training is not in every sampler's arg list.
+            #   Consider to use inspect package to fix this.
+            sampler_config["is_training"] = is_training
+            sampler_config["dataset"] = dataset
+            sampler = sampler_cls(**sampler_config)
+        elif is_dist():
+            # default to be distributed sampler
+            sampler = DistributedSampler(
+                dataset,
+                shuffle=True,
+                drop_last=False,
+                seed=self.kwargs.get("seed", 123),
+            )
+        elif is_training:
+            sampler = RandomSampler(dataset)
+        else:
+            sampler = SequentialSampler(dataset)
+
+        data_loader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            sampler=sampler,
+            drop_last=True,
+            collate_fn=(
+                dataset.collater if hasattr(dataset, "collater") else collate_with_none
+            ),
+            prefetch_factor=3,
+            pin_memory=True,
+        )
+
+        return dataset, data_loader
 
     def _init_iterable_dataset(
             self, dataset_config, batch_size, num_workers, is_training=True
@@ -186,7 +229,9 @@ class CoDataModule(pl.LightningDataModule):
 
     def initialize(self, mode="train"):
         self.initialize_vla_data(mode)
-        self.initialize_vlm_data(mode)
+        if not self.init_vlm_data_once:
+            self.initialize_vlm_data()
+            self.init_vlm_data_once = True
 
     def initialize_vla_data(self, mode="train"):
         if mode == "train":
@@ -204,58 +249,73 @@ class CoDataModule(pl.LightningDataModule):
             )
 
     def initialize_vlm_data(self, mode="train"):
-        self._vlm_train_datasets, self._vlm_val_datasets = build_coft_dataset(self.coft_dataset_config['data_names'],
-                                                                              self.kwargs['model_name'],
-                                                                              self.kwargs['tokenizer'],
-                                                                              self.kwargs['image_preprocess'])
-        collate_fn = DataCollatorForCoFTDataset(self.kwargs['tokenizer'], self.kwargs['model_name'])
-        if mode == "train":
+        if self.coft_dataset_config is not None:
+            self._vlm_train_datasets, self._vlm_val_datasets = build_coft_dataset(
+                self.coft_dataset_config['data_names'],
+                self.kwargs['model_name'],
+                self.kwargs['tokenizer'],
+                self.kwargs['image_fn'])
+
+            collate_fn = DataCollatorForCoFTDataset(self.kwargs['tokenizer'], self.kwargs['model_name'])
+
             batch_size = self._init_dataset_params(True, "batch_size")
             num_workers = self._init_dataset_params(True, "num_workers")
+
+            sampler = RandomSampler(self._vlm_train_datasets)
             self._vlm_train_loader = torch.utils.data.DataLoader(
                 self._vlm_train_datasets,
                 batch_size=batch_size,
-                # num_workers=4,
+                num_workers=4,
+                sampler=sampler,
                 drop_last=True,
                 collate_fn=collate_fn,
-                # pin_memory=True
+                prefetch_factor=3,
+                pin_memory=True
             )
 
-        elif mode == "val":
             batch_size = self._init_dataset_params(False, "batch_size")
             num_workers = self._init_dataset_params(False, "num_workers")
+
+            sampler = RandomSampler(self._vlm_val_datasets)
             self._vlm_val_loader = torch.utils.data.DataLoader(
                 self._vlm_val_datasets,
                 batch_size=batch_size,
-                # num_workers=4,
+                num_workers=4,
+                sampler=sampler,
                 drop_last=True,
                 collate_fn=collate_fn,
-                # pin_memory=True
+                prefetch_factor=3,
+                pin_memory=True
             )
+        else:
+            self._vlm_train_datasets, self._vlm_val_datasets = None, None
 
     def train_datasets(self):
         return self._vlm_train_datasets, self._vla_train_datasets
 
     def val_datasets(self):
-        return self._vlm_val_datasets, self._vlm_val_datasets
+        return self._vlm_val_datasets, self._vla_val_datasets
 
     def train_dataloader(self):
         self.initialize("train")
-
-        combined_dataloader = WeightedCombinedLoader(
-            [self._vlm_train_loader, self._vla_train_loader],
-            "max_size_cycle",
-            weights=self.coft_dataset_config['vlm_robot_weights']
-        )
-
-        return combined_dataloader
+        if self.coft_dataset_config is not None:
+            dataloader = WeightedCombinedLoader(
+                [self._vlm_train_loader, self._vla_train_loader],
+                "max_size_cycle",
+                weights=self.coft_dataset_config['vlm_robot_weights']
+            )
+            return dataloader
+        else:
+            return self._vla_train_loader
 
     def val_dataloader(self):
         self.initialize("val")
-        combined_dataloader = WeightedCombinedLoader(
-            [self._vlm_val_loader, self._vla_val_loader],
-            "max_size_cycle",
-            weights=self.coft_dataset_config['vlm_robot_weights']
-        )
-
-        return combined_dataloader
+        if self.coft_dataset_config is not None:
+            dataloader = WeightedCombinedLoader(
+                [self._vlm_val_loader, self._vla_val_loader],
+                "max_size_cycle",
+                weights=self.coft_dataset_config['vlm_robot_weights']
+            )
+            return dataloader
+        else:
+            return self._vla_val_loader

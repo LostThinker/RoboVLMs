@@ -387,25 +387,39 @@ The training configuration files automatically inherit parameters like `window_s
 
 ## Evaluation
 
-During training, the model checkpoint and running configuration are saved at the paths specified by the `output_root` and `log_root` in the config file. To perform evaluation, you need to specify the checkpoint paths and configuration files in the `eval/calvin/eval_ckpts.py` script.
+During training, the model checkpoint and running configuration are saved at the paths specified by the `output_root` and `log_root` in the config file. 
 
-Add the paths to your checkpoint and configuration files in the `ckpt_paths` list:
+Add the paths to your checkpoint and configuration files in the `ckpt_paths` list for each eval script as shown below:
 
 ```python
 ckpt_paths = [
     ('path/to/VLA-Checkpoint-{epoch}-{steps}.ckpt', 
     'path/to/VLA-Checkpoint-config.json')
 ]
-### Evaluation on Different Environments
-To evaluate the model on Google Robot, use the following command:
+```
+
+### Evaluation on CALVIN
+```bash
+python eval/calvin/eval_ckpts.py
+```
+
+### Evaluation on Simpler
+Before running, make sure that you have the right path to that image. You can make a soft link for `ManiSkill2_real2sim/data/real_inpainting` to run provided scripts:
+```bash
+sudo ln -s path_to_simpler_env/SimplerEnv/ManiSkill2_real2sim/data/real_inpainting real_inpainting
+```
+
+To evaluate the model on **Google Robot** environments, use the following command:
+
 ```bash
 python eval/simpler/eval_ckpts_google_robot.py
 ```
-For evaluation on the Bridge environment, run:
+For evaluation on **Bridge** environments, run:
 ```bash
 python eval/simpler/eval_ckpts_bridge.py
 ```
-Make sure that the paths to the checkpoint files and configuration are correct and match the setup of your environment before running the evaluation scripts.
+
+Make sure that the paths to the checkpoint files and configuration are correct and match the setup of your environment before running the evaluation scripts. If you want to evaluate without downloading the pre-trained backbone, you can refer to [this issue](https://github.com/Robot-VLAs/RoboVLMs/issues/7#issuecomment-2590730748).
 
 ## Supported Backbones & VLA Architectures (Updating)
 ✅ Fully tested and tuned 
