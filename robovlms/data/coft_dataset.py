@@ -4,7 +4,10 @@ import random
 import copy
 import torch
 import torchvision.transforms as T
-from PIL import Image
+from PIL import Image, PngImagePlugin
+
+PngImagePlugin.MAX_TEXT_CHUNK = 1024 * 1024 * 10
+
 from functools import partial
 import numpy as np
 from torch.utils.data import Dataset
@@ -39,7 +42,8 @@ def scienceqa_map_batch(batch):
         image = batch['image'][i]
         if image is None:
             image = Image.new('RGB', (224, 224), (0, 0, 0))
-        image = image.convert('RGB')
+        else:
+            image = image.convert('RGB').resize((224, 224))
         images.append(image)
 
         question = batch['question'][i]
@@ -82,7 +86,7 @@ def invig_map_batch(batch):
     for i in range(len(batch['image'])):
         # 处理图像
         image = batch['image'][i]
-        image = image.convert('RGB')
+        image = image.convert('RGB').resize((224, 224))
         images.append(image)
 
         # 处理对话
@@ -110,7 +114,7 @@ def visdial_map_batch(batch):
     for i in range(len(batch['image'])):
         # 处理图像
         image = batch['image'][i]
-        image = image.convert('RGB')
+        image = image.convert('RGB').resize((224, 224))
         processed_images.append(image)
 
         # 提取对话信息
