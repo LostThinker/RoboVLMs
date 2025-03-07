@@ -1,8 +1,5 @@
 import os
 
-os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
-os.environ['HF_HOME'] = '/data2/user/qianlong_dataset/hf_cache'
-
 import argparse
 import json
 from pathlib import Path
@@ -357,7 +354,6 @@ def update_json_config(file_path, key, value):
 
 
 def main():
-
     # os.environ['CUDA_LAUNCH_BLOCKING']="1"
     args = parse_args()
 
@@ -380,6 +376,10 @@ def debug():
 
     # os.environ['CUDA_LAUNCH_BLOCKING']="1"
     os.environ['RANK'] = '0'
+    # os.environ['WORLD_SIZE'] = '1'
+    # os.environ['MASTER_ADDR'] = 'localhost'
+    # os.environ['MASTER_PORT'] = '12345'
+
     sys.argv = ["main.py",
                 "./configs/oxe_training/finetune_paligenmma_cont-lstm-post_full-ft_text_vision_wd-0_use-hand_ws-16_act-10_bridge_finetune_debug.json"]
     args = parse_args()
@@ -399,6 +399,79 @@ def debug():
 
     # dist.init_process_group(backend="nccl")
     experiment(variant=configs)
+
+    # configs[
+    #     'model_load_path'] = "/data/user/qianlong/remote-ws/embodied-ai/vla/RoboVLMs/runs/checkpoints/uform/calvin_finetune/2025-03-05/01-31/epoch=0-step=50000.ckpt.fp32.pt"
+    # check_model(variant=configs)
+
+
+def check_model(variant):
+    seed_everything(variant["seed"] + int(os.environ["RANK"]))
+    # import pdb; pdb.set_trace()
+    trainer_config = init_trainer_config(variant)
+    model_load_path = variant.get("model_load_path", None)
+
+    trainer = Trainer(**trainer_config)
+    variant["gpus"] = trainer.num_devices
+    variant["train_setup"]["precision"] = variant["trainer"]["precision"]
+
+    if variant["fwd_head"] is not None:
+        variant["train_setup"]["predict_forward_hand"] = variant["fwd_head"].get(
+            "pred_hand_image", False
+        )
+
+    if not os.path.exists(variant['model_path']):
+        repo_name = variant["model_url"].split("/")[-1].split(".")[0]
+        print(
+            f"VLM backbone does not exist, cloning {variant['model']} from {variant['model_url']}..."
+        )
+        os.system(f"git clone {variant['model_url']} .vlms/{repo_name}")
+        variant['model_path'] = ".vlms/" + repo_name
+        variant['model_config'] = os.path.join(variant['model_path'], "config.json")
+
+    if variant["model"] == "kosmos":
+        import transformers
+
+        package_dir = transformers.__path__[0]
+        os.system(
+            "cp tools/modeling_kosmos2.py {}/models/kosmos2/modeling_kosmos2.py".format(
+                package_dir
+            )
+        )
+
+        import importlib
+
+        importlib.reload(transformers)
+
+    model = BaseTrainer.from_checkpoint(
+        model_load_path, variant.get("model_load_source", "torch"), variant
+    )
+
+    uform_model = model.model.backbone
+
+    from transformers import AutoModel, AutoProcessor
+    from PIL import Image
+    import torch
+    uform_model = uform_model.to(torch.float32)
+    processor = AutoProcessor.from_pretrained("unum-cloud/uform-gen2-qwen-500m", trust_remote_code=True)
+
+    prompt = "In: What action should the robot take to grab the green rag? \nOut:"
+    image = Image.open("test.png")
+
+    inputs = processor(text=[prompt], images=[image], return_tensors="pt")
+    with torch.inference_mode():
+        output = uform_model.generate(
+            **inputs,
+            do_sample=False,
+            use_cache=True,
+            max_new_tokens=256,
+            eos_token_id=151645,
+            pad_token_id=processor.tokenizer.pad_token_id
+        )
+
+    prompt_len = inputs["input_ids"].shape[1]
+    decoded_text = processor.batch_decode(output[:, prompt_len:])[0]
+    print(decoded_text)
 
 
 if __name__ == "__main__":
