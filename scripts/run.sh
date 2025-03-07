@@ -17,8 +17,11 @@ export NCCL_IB_DISABLE=0
 export NCCL_IB_GID_INDEX=3
 export NCCL_SOCKET_IFNAME="*"
 
-export CUDA_VISIBLE_DEVICES=4,5,6,7
+#export CUDA_VISIBLE_DEVICES=4,5,6,7
 
+## huggingface settings if needed
+# export HF_HOME=""
+# export HF_ENDPOINT='https://hf-mirror.com'
 
 # setup distributed training args
 GPUS_PER_NODE=4
