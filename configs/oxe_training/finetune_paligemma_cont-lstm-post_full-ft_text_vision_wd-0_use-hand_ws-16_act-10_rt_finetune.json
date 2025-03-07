@@ -117,7 +117,7 @@
         "model_name": "paligemma",
         "image_aug": true,
         "mode": "train",
-        "data_mix": "bridge",
+        "data_mix": "rt_1",
         "window_sample": "sliding",
         "organize_type": "interleave",
         "shuffle_buffer_size": 51200,
@@ -128,19 +128,11 @@
         "data_root_dir": "datasets/open-x-embodiment",
         "model_name": "paligemma",
         "mode": "train",
-        "data_mix": "bridge",
+        "data_mix": "rt_1",
         "window_sample": "sliding",
         "organize_type": "interleave",
         "shuffle_buffer_size": 10000,
         "train": false
-    },
-    "coft_dataset": {
-        "data_names": [
-            "derek-thomas/ScienceQA",
-            "jxu124/invig",
-            "HuggingFaceM4/VisDial"
-        ],
-        "vlm_robot_weights": [1, 1]
     },
     "norm_action": true,
     "norm_min": -0.65,

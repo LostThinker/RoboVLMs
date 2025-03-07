@@ -117,7 +117,7 @@
         "model_name": "paligemma",
         "image_aug": true,
         "mode": "train",
-        "data_mix": "rt_1",
+        "data_mix": "oxe_magic_soup",
         "window_sample": "sliding",
         "organize_type": "interleave",
         "shuffle_buffer_size": 51200,
@@ -133,14 +133,6 @@
         "organize_type": "interleave",
         "shuffle_buffer_size": 10000,
         "train": false
-    },
-    "coft_dataset": {
-        "data_names": [
-            "derek-thomas/ScienceQA",
-            "jxu124/invig",
-            "HuggingFaceM4/VisDial"
-        ],
-        "vlm_robot_weights": [1, 1]
     },
     "norm_action": true,
     "norm_min": -0.65,
