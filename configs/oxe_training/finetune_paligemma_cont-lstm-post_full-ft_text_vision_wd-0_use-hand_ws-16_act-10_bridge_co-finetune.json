@@ -21,6 +21,7 @@
   "arm_gripper_loss_ratio": 0.01,
   "cap_loss_ratio": 0.05,
   "fwd_loss_ratio": 0,
+  "vl_cotrain_ratio": 1,
   "seed": 123,
   "batch_size": 4,
   "num_workers": 16,
