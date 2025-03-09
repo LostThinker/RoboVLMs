@@ -121,6 +121,7 @@
     "max_steps": 50000,
     "accumulate_grad_batches": 1
   },
+  "use_cot_data": true,
   "train_dataset": [
     {
       "type": "ECoTDataset",
