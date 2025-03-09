@@ -246,6 +246,11 @@ class CoTrainDataset(Dataset):
         for ignore_idx in target_ignore_idx:
             labels[ignore_idx[0]:ignore_idx[1]] = IGNORE_INDEX
 
+        # replace <image> with IMAGE_TOKEN_INDEX
+        image_tag_token = self.tokenizer.added_tokens_encoder['<image>']
+        input_ids[input_ids == image_tag_token] = IMAGE_TOKEN_INDEX
+        labels[labels == image_tag_token] = IMAGE_TOKEN_INDEX
+
         return input_ids, labels
 
     def collater(self, sample):
