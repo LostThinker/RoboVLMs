@@ -33,27 +33,27 @@ def initialize_param(model):
 
 class BaseRoboVLM(nn.Module):
     def __init__(
-        self,
-        configs,
-        train_setup_configs,
-        act_encoder_configs=None,
-        act_head_configs=None,
-        fwd_head_configs=None,
-        window_size=None,
-        use_obs_queries=True,
-        use_act_queries=True,
-        use_hand_rgb=False,
-        use_pixel_loss=True,
-        use_mim_obs_loss=False,
-        use_time_causal_attn=True,
-        vision_masked_ratio=0.9,
-        use_tube_mask=False,
-        fwd_pred_next_n=1,
-        use_vision_resampler=False,
-        vision_resampler_configs=None,
-        use_clip_norm=False,
-        use_state=False,
-        **kwargs,
+            self,
+            configs,
+            train_setup_configs,
+            act_encoder_configs=None,
+            act_head_configs=None,
+            fwd_head_configs=None,
+            window_size=None,
+            use_obs_queries=True,
+            use_act_queries=True,
+            use_hand_rgb=False,
+            use_pixel_loss=True,
+            use_mim_obs_loss=False,
+            use_time_causal_attn=True,
+            vision_masked_ratio=0.9,
+            use_tube_mask=False,
+            fwd_pred_next_n=1,
+            use_vision_resampler=False,
+            vision_resampler_configs=None,
+            use_clip_norm=False,
+            use_state=False,
+            **kwargs,
     ):
         super().__init__()
         self.window_size = window_size
@@ -96,7 +96,7 @@ class BaseRoboVLM(nn.Module):
 
         if self.act_head_configs is not None:
             self.action_space = self.act_head_configs.get("action_space", "continuous")
-            if self.action_space == "discrete":
+            if self.action_space == "discrete" or self.configs["use_cot_data"]:
                 self.action_tokenizer = ActionTokenizer(
                     self.tokenizer,
                     bins=self.act_head_configs["n_bin"],
@@ -213,11 +213,11 @@ class BaseRoboVLM(nn.Module):
         return self.tokenizer, model
 
     def cat_multi_modal_input(
-        self,
-        input_embeds: torch.Tensor,
-        multimodal_embeds: torch.Tensor = None,
-        insert_idx: int = 0,
-        masks: torch.Tensor = None,
+            self,
+            input_embeds: torch.Tensor,
+            multimodal_embeds: torch.Tensor = None,
+            insert_idx: int = 0,
+            masks: torch.Tensor = None,
     ):
         # concat multi-modal inputs
         if insert_idx >= 0:
@@ -232,7 +232,7 @@ class BaseRoboVLM(nn.Module):
         elif insert_idx == -1 and masks is not None:
             new_embed_list = []
             for mask, input_embed, multimodal_embed in zip(
-                masks, input_embeds, multimodal_embeds
+                    masks, input_embeds, multimodal_embeds
             ):
                 # the concat index is up to mask first False index
                 # concat_idx = (mask == False).nonzero()[0].item()
@@ -304,14 +304,14 @@ class BaseRoboVLM(nn.Module):
         return image_preprocess
 
     def merge_multi_modal_input(
-        self,
-        input_embeds: torch.Tensor,
-        multimodal_feats: torch.Tensor = None,
-        labels: torch.Tensor = None,
-        attention_mask: torch.Tensor = None,
-        is_image=True,
-        insert_idx=1,
-        fill_zero=False,
+            self,
+            input_embeds: torch.Tensor,
+            multimodal_feats: torch.Tensor = None,
+            labels: torch.Tensor = None,
+            attention_mask: torch.Tensor = None,
+            is_image=True,
+            insert_idx=1,
+            fill_zero=False,
     ):
         # if is_image, the vision_x needs to be processed by self.encode_images
         # otherwise merge
@@ -382,7 +382,7 @@ class BaseRoboVLM(nn.Module):
                 if self.start_image_token_id is not None:
                     mutlimodal_labels[:, 0] = self.start_image_token_id
                     mutlimodal_labels[
-                        :, multimodal_feats.shape[1] + 1
+                    :, multimodal_feats.shape[1] + 1
                     ] = end_image_token_id
 
         multimodal_attention_mask = None
@@ -467,13 +467,13 @@ class BaseRoboVLM(nn.Module):
                 model.requires_grad_(False)
                 if hasattr(self.text_tower, "layers"):
                     for layer in self.text_tower.layers[
-                        -self.train_setup_configs["train_decoder_layers"] :
-                    ]:
+                                 -self.train_setup_configs["train_decoder_layers"]:
+                                 ]:
                         layer.requires_grad_(True)
                 elif hasattr(self.text_tower, "blocks"):
                     for layer in self.text_tower.blocks[
-                        -self.train_setup_configs["train_decoder_layers"] :
-                    ]:
+                                 -self.train_setup_configs["train_decoder_layers"]:
+                                 ]:
                         layer.requires_grad_(True)
 
         if self.train_setup_configs.get("train_vision", False):
@@ -523,11 +523,11 @@ class BaseRoboVLM(nn.Module):
         print({k for k, v in self.named_parameters() if v.requires_grad})
 
     def _forward_action_head(
-        self,
-        action_tokens: torch.Tensor,
-        action_labels: Tuple[torch.Tensor, torch.Tensor] = None,
-        action_mask: torch.Tensor = None,
-        **kwargs,
+            self,
+            action_tokens: torch.Tensor,
+            action_labels: Tuple[torch.Tensor, torch.Tensor] = None,
+            action_mask: torch.Tensor = None,
+            **kwargs,
     ):
         # action_tokens = get_target_modal_tokens(output_hs, self._action_mask(output_hs))
         action = self.act_head(
@@ -556,19 +556,19 @@ class BaseRoboVLM(nn.Module):
         return loss
 
     def forward_vl_task(
-        self,
-        input_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Tuple[Tuple[torch.Tensor, torch.Tensor], ...]] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        inputs_embeds: Optional[torch.Tensor] = None,
-        labels: Optional[torch.Tensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        images=None,
-        image_sizes: Optional[List[List[int]]] = None,
-        **kwargs,
+            self,
+            input_ids: Optional[torch.LongTensor] = None,
+            past_key_values: Optional[Tuple[Tuple[torch.Tensor, torch.Tensor], ...]] = None,
+            attention_mask: Optional[torch.Tensor] = None,
+            inputs_embeds: Optional[torch.Tensor] = None,
+            labels: Optional[torch.Tensor] = None,
+            use_cache: Optional[bool] = None,
+            output_attentions: Optional[bool] = None,
+            output_hidden_states: Optional[bool] = None,
+            return_dict: Optional[bool] = None,
+            images=None,
+            image_sizes: Optional[List[List[int]]] = None,
+            **kwargs,
     ):
         loss = {}
 
@@ -599,17 +599,49 @@ class BaseRoboVLM(nn.Module):
         )
         self._update_loss(loss, {"loss_vl": output.loss}, "cotrain")
 
+        cot_metrics = self._get_metrics_for_cot(output, labels)
+        self._update_loss(loss, cot_metrics, "cotrain")
+
         return loss
 
+    def _get_metrics_for_cot(self, output, token_gt):
+        token_preds = output.logits.argmax(dim=2)
+        action_mask = (token_gt > self.action_tokenizer.action_token_begin_idx) & (token_gt != self.tokenizer.encode(self.tokenizer.eos_token)[0])
+
+        if torch.all(action_mask == False):
+            return {}
+
+        correct_action_preds = (token_preds == token_gt) & action_mask
+        action_accuracy = correct_action_preds.sum().float() / action_mask.sum().float()
+
+        continuous_actions_pred = torch.tensor(
+            self.action_tokenizer.decode_token_ids_to_actions(token_preds[action_mask].cpu().numpy())
+        )
+        continuous_actions_gt = torch.tensor(
+            self.action_tokenizer.decode_token_ids_to_actions(token_gt[action_mask].cpu().numpy())
+        )
+        action_l1_loss = torch.nn.functional.l1_loss(continuous_actions_pred, continuous_actions_gt).to(action_accuracy.device)
+
+        cot_mask = (token_gt > 0) & ~action_mask
+        correct_cot_preds = (token_preds == token_gt) & cot_mask
+        cot_accuracy = correct_cot_preds.sum().float() / cot_mask.sum().float()
+
+        metrics = dict(
+            cot_action_accuracy=action_accuracy,
+            cot_action_l1_loss=action_l1_loss,
+            cot_accuracy=cot_accuracy
+        )
+        return metrics
+
     def prepare_inputs_labels_for_multimodal(
-        self,
-        input_ids: Optional[torch.LongTensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Tuple[Tuple[torch.Tensor, torch.Tensor], ...]] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        labels: Optional[torch.Tensor] = None,
-        images=None,
-        **kwargs,
+            self,
+            input_ids: Optional[torch.LongTensor] = None,
+            position_ids: Optional[torch.LongTensor] = None,
+            past_key_values: Optional[Tuple[Tuple[torch.Tensor, torch.Tensor], ...]] = None,
+            attention_mask: Optional[torch.Tensor] = None,
+            labels: Optional[torch.Tensor] = None,
+            images=None,
+            **kwargs,
     ):
         image_start_embed = None
 
@@ -716,9 +748,9 @@ class BaseRoboVLM(nn.Module):
                 continue
 
             image_token_indices = (
-                [-1]
-                + torch.where(cur_input_ids == IMAGE_TOKEN_INDEX)[0].tolist()
-                + [cur_input_ids.shape[0]]
+                    [-1]
+                    + torch.where(cur_input_ids == IMAGE_TOKEN_INDEX)[0].tolist()
+                    + [cur_input_ids.shape[0]]
             )
             cur_input_ids_noim = []
             cur_labels = labels[batch_idx]
@@ -726,11 +758,11 @@ class BaseRoboVLM(nn.Module):
             for i in range(len(image_token_indices) - 1):
                 cur_input_ids_noim.append(
                     cur_input_ids[
-                        image_token_indices[i] + 1 : image_token_indices[i + 1]
+                    image_token_indices[i] + 1: image_token_indices[i + 1]
                     ]
                 )
                 cur_labels_noim.append(
-                    cur_labels[image_token_indices[i] + 1 : image_token_indices[i + 1]]
+                    cur_labels[image_token_indices[i] + 1: image_token_indices[i + 1]]
                 )
             split_sizes = [x.shape[0] for x in cur_labels_noim]
             cur_input_embeds = self.word_embedding(torch.cat(cur_input_ids_noim))
@@ -755,7 +787,7 @@ class BaseRoboVLM(nn.Module):
                     )
 
             cur_new_input_embeds = [
-                x.to(self.qwen_model.device) for x in cur_new_input_embeds
+                x.to(self.model.device) for x in cur_new_input_embeds
             ]
 
             cur_new_input_embeds = torch.cat(cur_new_input_embeds)
@@ -785,7 +817,7 @@ class BaseRoboVLM(nn.Module):
         )
 
         for i, (cur_new_embed, cur_new_labels) in enumerate(
-            zip(new_input_embeds, new_labels)
+                zip(new_input_embeds, new_labels)
         ):
             cur_len = cur_new_embed.shape[0]
             new_input_embeds_padded.append(
@@ -867,26 +899,26 @@ class BaseRoboVLM(nn.Module):
         return loss
 
     def forward_discrete(
-        self,
-        vision_x: torch.Tensor,
-        lang_x: torch.Tensor,
-        attention_mask: torch.Tensor = None,
-        position_ids: torch.LongTensor = None,
-        use_cached_vision_x: bool = False,  # TODO: Do we need this? If not we can remove it from here
-        action_labels: Tuple[torch.Tensor, torch.Tensor] = None,
-        action_mask: torch.Tensor = None,
-        caption_labels: torch.Tensor = None,
-        caption_mask: torch.Tensor = None,
-        past_key_values=None,
-        use_cache: bool = False,
-        vision_gripper=None,
-        fwd_rgb_labels: torch.Tensor = None,
-        fwd_hand_rgb_labels: torch.Tensor = None,
-        fwd_mask: torch.Tensor = None,
-        instr_and_action_ids=None,
-        instr_and_action_labels=None,
-        instr_and_action_mask=None,
-        **kwargs,
+            self,
+            vision_x: torch.Tensor,
+            lang_x: torch.Tensor,
+            attention_mask: torch.Tensor = None,
+            position_ids: torch.LongTensor = None,
+            use_cached_vision_x: bool = False,  # TODO: Do we need this? If not we can remove it from here
+            action_labels: Tuple[torch.Tensor, torch.Tensor] = None,
+            action_mask: torch.Tensor = None,
+            caption_labels: torch.Tensor = None,
+            caption_mask: torch.Tensor = None,
+            past_key_values=None,
+            use_cache: bool = False,
+            vision_gripper=None,
+            fwd_rgb_labels: torch.Tensor = None,
+            fwd_hand_rgb_labels: torch.Tensor = None,
+            fwd_mask: torch.Tensor = None,
+            instr_and_action_ids=None,
+            instr_and_action_labels=None,
+            instr_and_action_mask=None,
+            **kwargs,
     ):
         loss = {}
         assert vision_x is not None
@@ -943,10 +975,10 @@ class BaseRoboVLM(nn.Module):
                 ws=window_size,
             )
             for tensor in (
-                multimodal_embeds,
-                mutlimodal_labels,
-                multimodal_attention_mask,
-            )
+            multimodal_embeds,
+            mutlimodal_labels,
+            multimodal_attention_mask,
+        )
         )
 
         output = self.model(
@@ -970,29 +1002,29 @@ class BaseRoboVLM(nn.Module):
         return loss
 
     def forward_continuous(
-        self,
-        vision_x: torch.Tensor,
-        lang_x: torch.Tensor,
-        attention_mask: torch.Tensor = None,
-        position_ids: torch.LongTensor = None,
-        use_cached_vision_x: bool = False,  # TODO: Do we need this? If not we can remove it from here
-        action_labels: Tuple[torch.Tensor, torch.Tensor] = None,
-        action_mask: torch.Tensor = None,
-        caption_labels: torch.Tensor = None,
-        caption_mask: torch.Tensor = None,
-        past_key_values=None,
-        use_cache: bool = False,
-        vision_gripper=None,
-        fwd_rgb_labels: torch.Tensor = None,
-        fwd_hand_rgb_labels: torch.Tensor = None,
-        fwd_mask: torch.Tensor = None,
-        instr_and_action_ids=None,
-        instr_and_action_labels=None,
-        instr_and_action_mask=None,
-        raw_text=None,
-        rel_state=None,
-        mode="train",
-        **kwargs,
+            self,
+            vision_x: torch.Tensor,
+            lang_x: torch.Tensor,
+            attention_mask: torch.Tensor = None,
+            position_ids: torch.LongTensor = None,
+            use_cached_vision_x: bool = False,  # TODO: Do we need this? If not we can remove it from here
+            action_labels: Tuple[torch.Tensor, torch.Tensor] = None,
+            action_mask: torch.Tensor = None,
+            caption_labels: torch.Tensor = None,
+            caption_mask: torch.Tensor = None,
+            past_key_values=None,
+            use_cache: bool = False,
+            vision_gripper=None,
+            fwd_rgb_labels: torch.Tensor = None,
+            fwd_hand_rgb_labels: torch.Tensor = None,
+            fwd_mask: torch.Tensor = None,
+            instr_and_action_ids=None,
+            instr_and_action_labels=None,
+            instr_and_action_mask=None,
+            raw_text=None,
+            rel_state=None,
+            mode="train",
+            **kwargs,
     ):
         loss = {}
         assert vision_x is not None
@@ -1020,9 +1052,9 @@ class BaseRoboVLM(nn.Module):
         input_embeds = self.word_embedding(lang_x)
         # get <bos> & <eos> offset
         lang_size = (
-            lang_x.shape[-1]
-            - int(self.tokenizer.eos_token is not None)
-            - int(self.tokenizer.bos_token is not None)
+                lang_x.shape[-1]
+                - int(self.tokenizer.eos_token is not None)
+                - int(self.tokenizer.bos_token is not None)
         )
 
         (
@@ -1145,10 +1177,10 @@ class BaseRoboVLM(nn.Module):
             if token_src == "text":
                 # fetch the language tokens
                 action_hs = action_hs[
-                    :, -lang_size - eos_offset : action_hs.shape[1] - eos_offset
-                ].reshape(bs, seq_len, lang_size, -1)
+                            :, -lang_size - eos_offset: action_hs.shape[1] - eos_offset
+                            ].reshape(bs, seq_len, lang_size, -1)
             elif token_src == "vision":
-                action_hs = action_hs[:, bos_offset : -lang_size - eos_offset].reshape(
+                action_hs = action_hs[:, bos_offset: -lang_size - eos_offset].reshape(
                     bs, seq_len, -1, action_hs.shape[-1]
                 )
             elif token_src == "all":
@@ -1183,28 +1215,28 @@ class BaseRoboVLM(nn.Module):
         return loss
 
     def forward(
-        self,
-        vision_x: torch.Tensor,
-        lang_x: torch.Tensor,
-        attention_mask: torch.Tensor = None,
-        position_ids: torch.LongTensor = None,
-        use_cached_vision_x: bool = False,  # TODO: Do we need this? If not we can remove it from here
-        action_labels: Tuple[torch.Tensor, torch.Tensor] = None,
-        action_mask: torch.Tensor = None,
-        caption_labels: torch.Tensor = None,
-        caption_mask: torch.Tensor = None,
-        past_key_values=None,
-        use_cache: bool = False,
-        vision_gripper=None,
-        fwd_rgb_labels: torch.Tensor = None,
-        fwd_hand_rgb_labels: torch.Tensor = None,
-        fwd_mask: torch.Tensor = None,
-        instr_and_action_ids=None,
-        instr_and_action_labels=None,
-        instr_and_action_mask=None,
-        raw_text=None,
-        data_source=[],
-        **kwargs,
+            self,
+            vision_x: torch.Tensor,
+            lang_x: torch.Tensor,
+            attention_mask: torch.Tensor = None,
+            position_ids: torch.LongTensor = None,
+            use_cached_vision_x: bool = False,  # TODO: Do we need this? If not we can remove it from here
+            action_labels: Tuple[torch.Tensor, torch.Tensor] = None,
+            action_mask: torch.Tensor = None,
+            caption_labels: torch.Tensor = None,
+            caption_mask: torch.Tensor = None,
+            past_key_values=None,
+            use_cache: bool = False,
+            vision_gripper=None,
+            fwd_rgb_labels: torch.Tensor = None,
+            fwd_hand_rgb_labels: torch.Tensor = None,
+            fwd_mask: torch.Tensor = None,
+            instr_and_action_ids=None,
+            instr_and_action_labels=None,
+            instr_and_action_mask=None,
+            raw_text=None,
+            data_source=[],
+            **kwargs,
     ):
         loss = {}
         if isinstance(data_source, list):
@@ -1242,28 +1274,28 @@ class BaseRoboVLM(nn.Module):
         return loss
 
     def forward_action(
-        self,
-        vision_x: torch.Tensor,
-        lang_x: torch.Tensor,
-        attention_mask: torch.Tensor = None,
-        position_ids: torch.LongTensor = None,
-        use_cached_vision_x: bool = False,  # TODO: Do we need this? If not we can remove it from here
-        action_labels: Tuple[torch.Tensor, torch.Tensor] = None,
-        action_mask: torch.Tensor = None,
-        caption_labels: torch.Tensor = None,
-        caption_mask: torch.Tensor = None,
-        past_key_values=None,
-        use_cache: bool = False,
-        vision_gripper=None,
-        fwd_rgb_labels: torch.Tensor = None,
-        fwd_hand_rgb_labels: torch.Tensor = None,
-        fwd_mask: torch.Tensor = None,
-        instr_and_action_ids=None,
-        instr_and_action_labels=None,
-        instr_and_action_mask=None,
-        raw_text=None,
-        rel_state=None,
-        **kwargs,
+            self,
+            vision_x: torch.Tensor,
+            lang_x: torch.Tensor,
+            attention_mask: torch.Tensor = None,
+            position_ids: torch.LongTensor = None,
+            use_cached_vision_x: bool = False,  # TODO: Do we need this? If not we can remove it from here
+            action_labels: Tuple[torch.Tensor, torch.Tensor] = None,
+            action_mask: torch.Tensor = None,
+            caption_labels: torch.Tensor = None,
+            caption_mask: torch.Tensor = None,
+            past_key_values=None,
+            use_cache: bool = False,
+            vision_gripper=None,
+            fwd_rgb_labels: torch.Tensor = None,
+            fwd_hand_rgb_labels: torch.Tensor = None,
+            fwd_mask: torch.Tensor = None,
+            instr_and_action_ids=None,
+            instr_and_action_labels=None,
+            instr_and_action_mask=None,
+            raw_text=None,
+            rel_state=None,
+            **kwargs,
     ):
         action_space = self.act_head_configs.get("action_space", "continuous")
         ### discard the latter visual observation is with_history is False
@@ -1306,7 +1338,7 @@ class BaseRoboVLM(nn.Module):
             )
 
     def pred_action_discrete(
-        self, instr_and_action_ids, vision_x, vision_gripper=None, attention_mask=None
+            self, instr_and_action_ids, vision_x, vision_gripper=None, attention_mask=None
     ):
         assert vision_x is not None
         input_embeds = self.word_embedding(instr_and_action_ids)
@@ -1376,20 +1408,20 @@ class BaseRoboVLM(nn.Module):
         return discretized_actions
 
     def inference(
-        self,
-        vision_x: torch.Tensor,
-        lang_x: torch.Tensor,
-        attention_mask: torch.Tensor = None,
-        position_ids: torch.LongTensor = None,
-        use_cached_vision_x: bool = False,  # TODO: Do we need this? If not we can remove it from here
-        action_labels: Tuple[torch.Tensor, torch.Tensor] = None,
-        action_mask: torch.Tensor = None,
-        caption_labels: torch.Tensor = None,
-        caption_mask: torch.Tensor = None,
-        past_key_values=None,
-        use_cache: bool = False,
-        vision_gripper=None,
-        **kwargs,
+            self,
+            vision_x: torch.Tensor,
+            lang_x: torch.Tensor,
+            attention_mask: torch.Tensor = None,
+            position_ids: torch.LongTensor = None,
+            use_cached_vision_x: bool = False,  # TODO: Do we need this? If not we can remove it from here
+            action_labels: Tuple[torch.Tensor, torch.Tensor] = None,
+            action_mask: torch.Tensor = None,
+            caption_labels: torch.Tensor = None,
+            caption_mask: torch.Tensor = None,
+            past_key_values=None,
+            use_cache: bool = False,
+            vision_gripper=None,
+            **kwargs,
     ):
         prediction = {}
 
