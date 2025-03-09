@@ -18,8 +18,11 @@ from robovlms.data.data_utils import get_prompt_builder
 from PIL import Image
 import torch
 from typing import Callable, Dict, Sequence, Tuple, List
-
-IGNORE_INDEX = -100
+from robovlms.data.vid_llava_constants import (
+    IGNORE_INDEX,
+    IMAGE_TOKEN_INDEX,
+    DEFAULT_IMAGE_TOKEN
+)
 
 
 class CotTag(enum.Enum):
@@ -172,20 +175,32 @@ class RLDSBatchTransform:
 
         # Construct Chat-based Prompt =>> Input is default query + language instruction, output are the action tokens
         prompt_builder = get_prompt_builder(
-            self.model_name, eos=self.base_tokenizer.eos_token, bos=self.base_tokenizer.bos_token
+            "cotrain", eos=self.base_tokenizer.eos_token, bos=self.base_tokenizer.bos_token
         )
 
         # prompt_builder = self.prompt_builder_fn("openvla")
-
-        img = Image.fromarray(rlds_batch["observation"]["image_primary"][0])
         conversation = [
             # {"from": "human", "value": f"What action should the robot take to {lang}? Explain why with {subset}."},
             {"from": "human", "value": f"What action should the robot take to {lang}?"},
-            {"from": "gpt", "value": f"{reasoning} {CotTag.ACTION.value} {self.action_tokenizer(action)}"},
+            {"from": "gpt", "value": f"{reasoning} {CotTag.ACTION.value} "},
         ]
 
+        action_token = torch.tensor(self.action_tokenizer.encode_actions_to_token_ids(action))
+
+        cur_len = 0
+        target_ignore_idx = []
         for turn in conversation:
             prompt_builder.add_turn(turn["from"], turn["value"])
+
+            input_ids = self.base_tokenizer(
+                prompt_builder.get_prompt(), add_special_tokens=True,
+            ).input_ids
+            total_len = len(input_ids)
+
+            if turn["from"] == 'human':
+                target_ignore_idx.append([cur_len, total_len])
+
+            cur_len = total_len
 
         # if self.print_prompt_limit > 0:
         #     print("Conversation:", conversation)
@@ -194,17 +209,26 @@ class RLDSBatchTransform:
         #
         #     self.print_prompt_limit -= 1
 
-        # Tokenize (w/ `base_tokenizer`)
         input_ids = self.base_tokenizer(prompt_builder.get_prompt(), add_special_tokens=True).input_ids
-        labels = list(input_ids)
+        input_ids = torch.tensor(input_ids)
 
-        # Tensorize =>> Run Image Transform to get `pixel_values` =>> Return
-        #   =>> IMPORTANT :: IF WE'RE USING HF LLM.forward(..., labels=labels), SHIFTING HAPPENS _INSIDE_ MODEL!
-        input_ids, labels = torch.tensor(input_ids), torch.tensor(labels)
+        labels = input_ids.clone()
+        for ignore_idx in target_ignore_idx:
+            labels[ignore_idx[0]:ignore_idx[1]] = IGNORE_INDEX
+
+        # Explicitly adding action token
+        input_ids = torch.cat([input_ids[:-1], action_token, input_ids[-1:]])
+        labels = torch.cat([labels[:-1], action_token, labels[-1:]])
+
         pixel_values = self.image_transform([img])
 
         if not self.predict_stop_token:
             labels[-1] = IGNORE_INDEX
+
+        # replace <image> with IMAGE_TOKEN_INDEX
+        image_tag_token = self.base_tokenizer.added_tokens_encoder['<image>']
+        input_ids[input_ids == image_tag_token] = IMAGE_TOKEN_INDEX
+        labels[labels == image_tag_token] = IMAGE_TOKEN_INDEX
 
         return dict(pixel_values=pixel_values, input_ids=input_ids, labels=labels, dataset_name=dataset_name)
 
