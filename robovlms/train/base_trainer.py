@@ -91,8 +91,8 @@ class BaseTrainer(pl.LightningModule):
 
         self.vl_cotrain_ratio = self.configs.get("vl_cotrain_ratio", 0.05)
         if (
-            self.configs["act_head"] is not None
-            and self.configs["act_head"]["action_space"] == "discrete"
+                self.configs["act_head"] is not None
+                and self.configs["act_head"]["action_space"] == "discrete"
         ):
             self.vl_cotrain_ratio *= 10
 
@@ -120,7 +120,7 @@ class BaseTrainer(pl.LightningModule):
     def from_checkpoint(cls, ckpt_path=None, ckpt_source="torch", configs=None):
         if ckpt_path is None:
             assert (
-                configs is not None
+                    configs is not None
             ), "ckpt_path and configs are both None for initialization."
             return cls(configs)
 
@@ -203,7 +203,7 @@ class BaseTrainer(pl.LightningModule):
 
     def configure_optimizers(self):
         eff_batch_size = (
-            self.configs["batch_size"] * self.num_gpus * (self.configs["seq_len"] - 1)
+                self.configs["batch_size"] * self.num_gpus * (self.configs["seq_len"] - 1)
         )
         eff_lr = self.configs["learning_rate"]
         self._main_rank_print("-" * 40)
@@ -277,6 +277,9 @@ class BaseTrainer(pl.LightningModule):
         loss_cap = prediction.get("loss_cap", None)
         loss_kl = prediction.get("loss_kl", None)
         loss_vl_cotrain = prediction.get("loss_vl_cotrain", None)
+        cot_action_accuracy = prediction.get("cot_action_accuracy_cotrain", None)
+        cot_action_l1_loss = prediction.get("cot_action_l1_loss_cotrain", None)
+        cot_accuracy = prediction.get("cot_accuracy_cotrain", None)
 
         ### loss logout for discrete setting
         action_l1 = prediction.get("action_l1_act", None)
@@ -323,6 +326,9 @@ class BaseTrainer(pl.LightningModule):
             "loss_kl": loss_kl,
             "clip_l1": clip_l1,
             "loss_vl_cotrain": loss_vl_cotrain,
+            "cot_action_accuracy": cot_action_accuracy,
+            "cot_action_l1_loss": cot_action_l1_loss,
+            "cot_accuracy": cot_accuracy
         }
 
         return output
@@ -543,6 +549,9 @@ class BaseTrainer(pl.LightningModule):
                 prog_bar_set.add("acc_gripper_act")
                 prog_bar_set.add("action_l1")
                 prog_bar_set.add("clip_l1")
+                prog_bar_set.add("cot_action_accuracy")
+                prog_bar_set.add("cot_action_l1_loss")
+                prog_bar_set.add("cot_accuracy")
             if self.fwd_pred:
                 prog_bar_set.add("loss_obs_fwd")
                 if self.fwd_pred_hand:
@@ -628,6 +637,9 @@ class BaseTrainer(pl.LightningModule):
             prog_bar_set.add("acc_gripper_act")
             prog_bar_set.add("action_l1")
             prog_bar_set.add("clip_l1")
+            prog_bar_set.add("cot_action_accuracy")
+            prog_bar_set.add("cot_action_l1_loss")
+            prog_bar_set.add("cot_accuracy")
         if self.fwd_pred:
             prog_bar_set.add("loss_obs")
             if self.fwd_pred_hand:
