@@ -253,7 +253,7 @@ def generate_chunck_data(data, window_size, chunk_size):
     raw_data_shape = data.shape[2:]
     data_flatten = data.flatten().view(bs, seq_len, -1)
     assert (
-        seq_len == window_size + chunk_size
+            seq_len == window_size + chunk_size
     ), f"The sequence length should be {window_size + chunk_size}"
     data_flatten = repeat(data_flatten, "b s d -> b w s d", w=window_size)
 
@@ -615,6 +615,8 @@ def get_prompt_builder(model_name, eos=None, bos=None):
         return prompting.PhiPromptBuilder(model_family, eos=eos, bos=bos)
     elif "qwen" in model_name.lower():
         return prompting.QwenPromptBuilder(model_family, eos=eos, bos=bos)
+    elif "cotrain" in model_name.lower():
+        return prompting.QwenCoTrainPromptBuilder(model_family, eos=eos, bos=bos)
     else:
         return prompting.PhiPromptBuilder(model_family, eos=eos, bos=bos)
 
@@ -674,7 +676,7 @@ class PatchMask(nn.Module):
         # Mask out the patches.
         masked_x = x.clone()
         for i, j, k in mask_coords:
-            masked_x[i, :, j : j + self.patch_size, k : k + self.patch_size] = 0.0
+            masked_x[i, :, j: j + self.patch_size, k: k + self.patch_size] = 0.0
 
         return masked_x
 
@@ -697,11 +699,11 @@ def unnoramalize_action(action, action_min=-1, action_max=1, maintain_last=False
 
 
 def get_chunked_episode(
-    window_sample: Literal["sliding", "range"],
-    left_pad: bool,
-    window_size: int,
-    fwd_pred_next_n: int,
-    episode_idx_range: np.ndarray,
+        window_sample: Literal["sliding", "range"],
+        left_pad: bool,
+        window_size: int,
+        fwd_pred_next_n: int,
+        episode_idx_range: np.ndarray,
 ):
     if window_sample == "range":
         window_range = np.arange(window_size)
@@ -735,9 +737,9 @@ def get_chunked_episode(
 def permute_tensor_last_dim(x: torch.Tensor, insert_dim: int):
     old_permutation = list(range(x.ndim))
     new_permutation = (
-        old_permutation[:insert_dim]
-        + [old_permutation[-1]]
-        + old_permutation[insert_dim:-1]
+            old_permutation[:insert_dim]
+            + [old_permutation[-1]]
+            + old_permutation[insert_dim:-1]
     )
     return x.permute(new_permutation).contiguous()
 

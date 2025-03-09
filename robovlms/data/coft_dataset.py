@@ -212,7 +212,7 @@ class CoTrainDataset(Dataset):
 
     def preprocess_conversation(self, conversations):
         prompt_builder = get_prompt_builder(
-            self.model_name, eos=self.tokenizer.eos_token, bos=self.tokenizer.bos_token
+            "cotrain", eos=self.tokenizer.eos_token, bos=self.tokenizer.bos_token
         )
 
         cur_len = 0
