@@ -5,3 +5,4 @@ from .phi_prompter import PhiPromptBuilder
 from .vicuna_v15_prompter import VicunaV15ChatPromptBuilder
 from .qwen_prompter import QwenPromptBuilder
 from .cotrain_qwen_prompter import QwenCoTrainPromptBuilder
+from .cotrain_gemma_prompter import GemmaCoTrainPromptBuilder
