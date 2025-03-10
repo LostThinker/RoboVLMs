@@ -603,22 +603,28 @@ def get_prompt_builder(model_name, eos=None, bos=None):
     model_family = "openvla"
     from robovlms.data import prompting
 
-    if "vicuna" in model_name.lower():
-        return prompting.VicunaV15ChatPromptBuilder(model_family, eos=eos, bos=bos)
-    elif "mistral" in model_name.lower():
-        return prompting.MistralInstructPromptBuilder(
-            model_family, eos=eos, bos=bos
-        )
-    elif "llama" in model_name.lower():
-        return prompting.LLaMa2ChatPromptBuilder(model_family, eos=eos, bos=bos)
-    elif "mpt" in model_name.lower():
-        return prompting.PhiPromptBuilder(model_family, eos=eos, bos=bos)
-    elif "qwen" in model_name.lower():
-        return prompting.QwenPromptBuilder(model_family, eos=eos, bos=bos)
-    elif "cotrain" in model_name.lower():
-        return prompting.QwenCoTrainPromptBuilder(model_family, eos=eos, bos=bos)
+    if "cotrain" in model_name.lower():
+        if "paligemma" in model_name.lower():
+            return prompting.GemmaCoTrainPromptBuilder(model_family, eos=eos, bos=bos)
+        elif "uform" in model_name.lower():
+            return prompting.QwenCoTrainPromptBuilder(model_family, eos=eos, bos=bos)
+        else:
+            return prompting.PhiPromptBuilder(model_family, eos=eos, bos=bos)
     else:
-        return prompting.PhiPromptBuilder(model_family, eos=eos, bos=bos)
+        if "vicuna" in model_name.lower():
+            return prompting.VicunaV15ChatPromptBuilder(model_family, eos=eos, bos=bos)
+        elif "mistral" in model_name.lower():
+            return prompting.MistralInstructPromptBuilder(
+                model_family, eos=eos, bos=bos
+            )
+        elif "llama" in model_name.lower():
+            return prompting.LLaMa2ChatPromptBuilder(model_family, eos=eos, bos=bos)
+        elif "mpt" in model_name.lower():
+            return prompting.PhiPromptBuilder(model_family, eos=eos, bos=bos)
+        elif "qwen" in model_name.lower():
+            return prompting.QwenPromptBuilder(model_family, eos=eos, bos=bos)
+        else:
+            return prompting.PhiPromptBuilder(model_family, eos=eos, bos=bos)
 
 
 def mu_law_companding(x, mu=255, maintain_last=True):

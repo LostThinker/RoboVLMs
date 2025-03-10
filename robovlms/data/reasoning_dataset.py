@@ -175,7 +175,7 @@ class RLDSBatchTransform:
 
         # Construct Chat-based Prompt =>> Input is default query + language instruction, output are the action tokens
         prompt_builder = get_prompt_builder(
-            "cotrain", eos=self.base_tokenizer.eos_token, bos=self.base_tokenizer.bos_token
+            self.model_name, eos=self.base_tokenizer.eos_token, bos=self.base_tokenizer.bos_token
         )
 
         # prompt_builder = self.prompt_builder_fn("openvla")
