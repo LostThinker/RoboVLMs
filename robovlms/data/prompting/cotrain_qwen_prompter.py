@@ -34,6 +34,8 @@ class QwenCoTrainPromptBuilder(PromptBuilder):
         if self.eos is None:
             self.eos = "<|endoftext|>"
 
+        self.default_image_token = DEFAULT_IMAGE_TOKEN
+
         #
         # if self.bos is None and self.eos is None:
         #     self.bos, self.eos = "<|endoftext|>", "<|endoftext|>"

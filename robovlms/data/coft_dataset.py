@@ -18,15 +18,7 @@ from torchvision import transforms
 from typing import Dict, Optional, Sequence, List
 from robovlms.data.vid_llava_constants import (
     IGNORE_INDEX,
-    IMAGE_TOKEN_INDEX,
-    DEFAULT_IMAGE_TOKEN,
-    DEFAULT_IM_START_TOKEN,
-    DEFAULT_IM_END_TOKEN,
-    DEFAULT_VIDEO_TOKEN,
-    DEFAULT_VID_START_TOKEN,
-    DEFAULT_VID_END_TOKEN,
-    MAX_IMAGE_LENGTH,
-    MAX_VIDEO_LENGTH,
+    IMAGE_TOKEN_INDEX
 )
 import robovlms.data.conversation as conversation_lib
 from robovlms.data.data_utils import get_prompt_builder
@@ -247,7 +239,7 @@ class CoTrainDataset(Dataset):
             labels[ignore_idx[0]:ignore_idx[1]] = IGNORE_INDEX
 
         # replace <image> with IMAGE_TOKEN_INDEX
-        image_tag_token = self.tokenizer.added_tokens_encoder['<image>']
+        image_tag_token = self.tokenizer.added_tokens_encoder[prompt_builder.default_image_token]
         input_ids[input_ids == image_tag_token] = IMAGE_TOKEN_INDEX
         labels[labels == image_tag_token] = IMAGE_TOKEN_INDEX
 

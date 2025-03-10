@@ -32,6 +32,7 @@ class GemmaCoTrainPromptBuilder(PromptBuilder):
         if self.eos is None:
             self.eos = "<eos>"
 
+        self.default_image_token = DEFAULT_IMAGE_TOKEN
         #
         # if self.bos is None and self.eos is None:
         #     self.bos, self.eos = "<|endoftext|>", "<|endoftext|>"

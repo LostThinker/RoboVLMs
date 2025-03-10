@@ -11,8 +11,6 @@ import enum
 from robovlms.model.policy_head.action_tokenizer import ActionTokenizer
 from transformers import PreTrainedTokenizerBase
 from dataclasses import dataclass, field
-from prismatic.models.backbones.vision import ImageTransform
-from prismatic.models.backbones.llm.prompting import PromptBuilder
 from torch.nn.utils.rnn import pad_sequence
 from robovlms.data.data_utils import get_prompt_builder
 from PIL import Image
@@ -226,7 +224,7 @@ class RLDSBatchTransform:
             labels[-1] = IGNORE_INDEX
 
         # replace <image> with IMAGE_TOKEN_INDEX
-        image_tag_token = self.base_tokenizer.added_tokens_encoder['<image>']
+        image_tag_token = self.base_tokenizer.added_tokens_encoder[prompt_builder.default_image_token]
         input_ids[input_ids == image_tag_token] = IMAGE_TOKEN_INDEX
         labels[labels == image_tag_token] = IMAGE_TOKEN_INDEX
 
