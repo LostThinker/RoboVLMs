@@ -1,7 +1,7 @@
 {
   "robovlm_name": "RoboUform",
   "parent": null,
-  "task_name": "calvin_finetune",
+  "task_name": "bridge_cotrain",
   "model": "uform",
   "model_url": "https://huggingface.co/unum-cloud/uform-gen2-qwen-500m",
   "seq_len": 1,
@@ -120,9 +120,9 @@
     "use_distributed_sampler": false,
     "log_every_n_steps": 10,
     "max_epochs": 5,
-    "val_check_interval": 10000,
+    "val_check_interval": 2000,
     "check_val_every_n_epoch": null,
-    "max_steps": 50000,
+    "max_steps": 500000,
     "accumulate_grad_batches": 1
   },
   "use_cot_data": true,
@@ -131,8 +131,8 @@
       "type": "ECoTDataset",
       "data_root_dir": "/data2/user/qianlong_dataset/robot_dataset/robot-dataset/open-x-embodiment/robotics",
       "reasoning_data_dir": "/data2/user/qianlong_dataset/robot_dataset/robot-dataset/ecot/embodied_features_bridge.json",
-      "model_name": "uform",
-      "image_aug": false,
+      "model_name": "cotrain_uform",
+      "image_aug": true,
       "mode": "train",
       "data_mix": "bridge",
       "window_sample": "sliding",
@@ -143,7 +143,7 @@
     {
       "type": "CoTrainDataset",
       "data_dir": "derek-thomas/ScienceQA",
-      "model_name": "uform",
+      "model_name": "cotrain_uform",
       "mode": "train",
       "shuffle_seed": 42,
       "split": "train"
@@ -151,7 +151,7 @@
     {
       "type": "CoTrainDataset",
       "data_dir": "jxu124/invig",
-      "model_name": "uform",
+      "model_name": "cotrain_uform",
       "mode": "train",
       "shuffle_seed": 42,
       "split": "train"
@@ -159,7 +159,7 @@
     {
       "type": "CoTrainDataset",
       "data_dir": "HuggingFaceM4/VisDial",
-      "model_name": "uform",
+      "model_name": "cotrain_uform",
       "mode": "train",
       "shuffle_seed": 42,
       "split": "train"
@@ -171,7 +171,7 @@
       "data_root_dir": "/data2/user/qianlong_dataset/robot_dataset/robot-dataset/open-x-embodiment/robotics",
       "reasoning_data_dir": "/data2/user/qianlong_dataset/robot_dataset/robot-dataset/ecot/embodied_features_bridge.json",
       "data_dir": "bridge",
-      "model_name": "uform",
+      "model_name": "cotrain_uform",
       "mode": "train",
       "data_mix": "bridge",
       "window_sample": "sliding",
@@ -182,7 +182,7 @@
     {
       "type": "CoTrainDataset",
       "data_dir": "derek-thomas/ScienceQA",
-      "model_name": "uform",
+      "model_name": "cotrain_uform",
       "mode": "train",
       "shuffle_seed": 42,
       "split": "validation"
@@ -190,7 +190,7 @@
     {
       "type": "CoTrainDataset",
       "data_dir": "jxu124/invig",
-      "model_name": "uform",
+      "model_name": "cotrain_uform",
       "mode": "train",
       "shuffle_seed": 42,
       "split": "validation"
@@ -198,7 +198,7 @@
     {
       "type": "CoTrainDataset",
       "data_dir": "HuggingFaceM4/VisDial",
-      "model_name": "uform",
+      "model_name": "cotrain_uform",
       "mode": "train",
       "shuffle_seed": 42,
       "split": "validation"
