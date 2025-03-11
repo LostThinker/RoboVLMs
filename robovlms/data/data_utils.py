@@ -608,6 +608,8 @@ def get_prompt_builder(model_name, eos=None, bos=None):
             return prompting.GemmaCoTrainPromptBuilder(model_family, eos=eos, bos=bos)
         elif "uform" in model_name.lower():
             return prompting.QwenCoTrainPromptBuilder(model_family, eos=eos, bos=bos)
+        elif "qwen" in model_name.lower():
+            return prompting.Qwen25CoTrainPromptBuilder(model_family, eos=eos, bos=bos)
         else:
             return prompting.PhiPromptBuilder(model_family, eos=eos, bos=bos)
     else:
