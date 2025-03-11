@@ -1,7 +1,7 @@
 {
   "robovlm_name": "RoboPaligemma",
   "parent": null,
-  "task_name": "calvin_finetune",
+  "task_name": "bridge_cotrain",
   "model": "paligemma",
   "model_url": "https://huggingface.co/google/paligemma2-3b-pt-224",
   "seq_len": 1,
@@ -131,7 +131,7 @@
       "type": "ECoTDataset",
       "data_root_dir": "datasets/open-x-embodiment",
       "reasoning_data_dir": "datasets/embodied_features_bridge.json",
-      "model_name": "paligemma",
+      "model_name": "cotrain_paligemma",
       "image_aug": false,
       "mode": "train",
       "data_mix": "bridge",
@@ -143,7 +143,7 @@
     {
       "type": "CoTrainDataset",
       "data_dir": "derek-thomas/ScienceQA",
-      "model_name": "paligemma",
+      "model_name": "cotrain_paligemma",
       "mode": "train",
       "shuffle_seed": 42,
       "split": "train"
@@ -151,7 +151,7 @@
     {
       "type": "CoTrainDataset",
       "data_dir": "jxu124/invig",
-      "model_name": "paligemma",
+      "model_name": "cotrain_paligemma",
       "mode": "train",
       "shuffle_seed": 42,
       "split": "train"
@@ -159,7 +159,7 @@
     {
       "type": "CoTrainDataset",
       "data_dir": "HuggingFaceM4/VisDial",
-      "model_name": "paligemma",
+      "model_name": "cotrain_paligemma",
       "mode": "train",
       "shuffle_seed": 42,
       "split": "train"
@@ -171,7 +171,7 @@
       "data_root_dir": "datasets/open-x-embodiment",
       "reasoning_data_dir": "datasets/embodied_features_bridge.json",
       "data_dir": "bridge",
-      "model_name": "paligemma",
+      "model_name": "cotrain_paligemma",
       "mode": "train",
       "data_mix": "bridge",
       "window_sample": "sliding",
@@ -182,7 +182,7 @@
     {
       "type": "CoTrainDataset",
       "data_dir": "derek-thomas/ScienceQA",
-      "model_name": "paligemma",
+      "model_name": "cotrain_paligemma",
       "mode": "train",
       "shuffle_seed": 42,
       "split": "validation"
@@ -190,7 +190,7 @@
     {
       "type": "CoTrainDataset",
       "data_dir": "jxu124/invig",
-      "model_name": "paligemma",
+      "model_name": "cotrain_paligemma",
       "mode": "train",
       "shuffle_seed": 42,
       "split": "validation"
@@ -198,7 +198,7 @@
     {
       "type": "CoTrainDataset",
       "data_dir": "HuggingFaceM4/VisDial",
-      "model_name": "paligemma",
+      "model_name": "cotrain_paligemma",
       "mode": "train",
       "shuffle_seed": 42,
       "split": "validation"
