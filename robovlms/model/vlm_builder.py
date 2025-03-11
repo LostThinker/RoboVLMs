@@ -34,6 +34,14 @@ def build_vlm(vlm_config, tokenizer_config, precision="bf16"):
             use_flash_attn=False,
             device_map="cpu",
         )
+    elif model_name == 'qwen':
+        from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            model_path, device_map="cpu"
+        )
+
+        tokenizer = AutoProcessor.from_pretrained(model_path)
+
     else:
         model = getattr(transformers, model_type).from_pretrained(
             model_path, trust_remote_code=True
