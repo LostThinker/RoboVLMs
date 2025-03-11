@@ -652,10 +652,8 @@ class BaseRoboVLM(nn.Module):
             else:
                 end_image_token_id = self.end_image_token_id
 
-            image_start_embed = self.word_embedding(start_image_token_id).to(
-                self.device
-            )
-            image_end_embed = self.word_embedding(end_image_token_id).to(self.device)
+            image_start_embed = self.word_embedding(start_image_token_id.to(self.model.device))
+            image_end_embed = self.word_embedding(end_image_token_id.to(self.model.device))
 
         if type(images) is list or images.ndim == 5:
             if type(images) is list:

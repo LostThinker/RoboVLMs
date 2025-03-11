@@ -1,12 +1,18 @@
+import os
+
+os.environ['PYTHONPATH'] = "/data/user/qianlong/remote-ws/embodied-ai/vla/RoboVLMs"
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+os.environ['HF_HOME'] = '/data2/user/qianlong_dataset/hf_cache'
+
 import torch
 
 from robovlms.model.backbone.base_backbone import BaseRoboVLM, load_config, deep_update
 
 
 class RoboQwen(BaseRoboVLM):
-    @property
-    def image_processor(self):
-        return self.model.transformer.visual.image_transform
+    # @property
+    # def image_processor(self):
+    #     return self.processor.image_processor
 
     @property
     def model(self):
@@ -14,31 +20,50 @@ class RoboQwen(BaseRoboVLM):
 
     @property
     def hidden_size(self):
-        return self.model.config.hidden_size
+        return self.backbone.config.hidden_size
 
     @property
     def word_embedding(self):
-        return self.model.transformer.wte
+        return self.backbone.model.embed_tokens
 
     @property
     def text_tower(self):
-        return self.model.transformer
+        return self.backbone.lm_head
 
     @property
     def vision_tower(self):
-        return self.model.transformer.visual
-
-    @property
-    def model(self):
-        return self.backbone
+        return self.backbone.visual
 
     @property
     def start_image_token_id(self):
-        return torch.LongTensor([self.model.config.visual["image_start_id"]])
+        return torch.LongTensor([self.backbone.config.vision_start_token_id]).to(self.model.device)
 
     @property
     def end_image_token_id(self):
-        return torch.LongTensor([self.model.config.visual["image_start_id"] + 1])
+        return torch.LongTensor([self.backbone.config.vision_end_token_id]).to(self.model.device)
+
+    @property
+    def image_processor(self):
+        import torchvision.transforms as T
+
+        clip_mean = (0.48145466, 0.4578275, 0.40821073)
+        clip_std = (0.26862954, 0.26130258, 0.27577711)
+        image_preprocess = T.Compose(
+            [
+                T.Resize(
+                    (
+                        self.configs.get("image_size", 224),
+                        self.configs.get("image_size", 224),
+                    ),
+                    interpolation=T.InterpolationMode.BICUBIC,
+                ),
+                T.Lambda(lambda img: img.convert("RGB")),
+                T.ToTensor(),
+                # T.Normalize(clip_mean, clip_std),
+            ]
+        )
+        return image_preprocess
+
 
     def encode_images(self, images):
         # input: images: list of b,c,h,w or b,t,c,h,w
@@ -50,7 +75,14 @@ class RoboQwen(BaseRoboVLM):
             if type(images) is list:
                 images = [x.unsqueeze(0) if x.ndim == 3 else x for x in images]
             images = torch.cat([image for image in images], dim=0)
-        image_features = self.vision_tower(images)
+
+        # images is PIL list
+        # images=[image for image in images]
+        # for i in range()
+        image_inputs = self.processor.image_processor(images=images, videos=None, return_tensors="pt", do_rescale=False)
+        pixel_values = image_inputs['pixel_values'].to(self.vision_tower.device)
+        grid_thw = image_inputs['image_grid_thw'].to(self.vision_tower.device)
+        image_features = self.vision_tower(pixel_values, grid_thw)
         image_features = image_features.view(
             bs, seq_len, -1, image_features[0].shape[-1]
         )
@@ -67,7 +99,7 @@ class RoboQwen(BaseRoboVLM):
 
 if __name__ == "__main__":
     configs = load_config(
-        "configs/finetune_qwen-vl-7b_cont-lstm-post_full_ft_text_vision_wd=0_hist=8_act=10_aug-shift_act-norm.json"
+        "/data/user/qianlong/remote-ws/embodied-ai/vla/RoboVLMs/configs/oxe_training/finetune_qwen_cont-lstm-post_full-ft_text_vision_wd-0_use-hand_ws-16_act-10_bridge_finetune_debug_single.json"
     )
     use_hand_rgb = False  # True
     model = RoboQwen(
@@ -85,7 +117,7 @@ if __name__ == "__main__":
 
     print(f"Qwen Model Parameters: {total_params / 1000000:.2f}M")
     bs, seq_len = 2, 4
-    device = "cuda:0"
+    device = "cuda:5"
     model = model.to(device)
     # device = 'cpu'
     img_size = 448
