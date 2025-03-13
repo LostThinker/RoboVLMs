@@ -207,7 +207,7 @@ def experiment(variant):
             weights=variant.get("train_weights", None),
             tcp_rel=variant.get("tcp_rel", False),
             # vit_name=vit_name,
-            model_name=variant.get("model", "flamingo"),
+            # model_name=variant.get("model", "flamingo"),
         ),
         "ckpt_path": variant["resume"],
     }
