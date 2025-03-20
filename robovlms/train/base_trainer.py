@@ -1,3 +1,4 @@
+from typing import Optional
 import time
 import warnings
 import os
@@ -7,6 +8,7 @@ from functools import partial
 import math
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
 import lightning.pytorch as pl
@@ -50,11 +52,18 @@ class BaseTrainer(pl.LightningModule):
             vision_resampler_configs=self.configs.get("vision_resampler", None),
             use_clip_norm=self.configs.get("use_clip_norm", False),
             use_state=self.configs.get("use_state, False", False),
+            reward_head_configs=self.configs.get("reward_head", None),
+            use_cot=self.configs.get("use_cot", False),
+            cot_tags=self.configs.get("cot_tags", None),
+            action_cot_tags=self.configs.get("action_cot_tags", None),
+            use_cot_stage_token=self.configs.get("use_cot_stage_token", True),
         )
+        if self.configs["trainer"]["precision"] == "32":
+            model = model.to(torch.float32)
         model = model.train()
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        print({k for k, v in model.named_parameters() if v.requires_grad})
-        self._main_rank_print(f"KosMos Model Parameters: {total_params / 1000000:.2f}M")
+        # print({k for k, v in model.named_parameters() if v.requires_grad})
+        self._main_rank_print(f"Model Parameters: {total_params / 1000000:.2f}M")
         return model
 
     def _parse_dataset_name(self, dataset_config):
@@ -83,16 +92,17 @@ class BaseTrainer(pl.LightningModule):
         )
 
         self.model = self._init_policy()
-        self.cap_loss_ratio = self.configs["cap_loss_ratio"]
-        self.arm_gripper_loss_ratio = self.configs["arm_gripper_loss_ratio"]
-        self.fwd_loss_ratio = self.configs["fwd_loss_ratio"]
+        self.cap_loss_ratio = self.configs.get("cap_loss_ratio", 0.1)
+        self.text_loss_ratio = self.configs.get("text_loss_ratio", 0.1)
+        self.arm_gripper_loss_ratio = self.configs.get("arm_gripper_loss_ratio", 0.01)
+        self.fwd_loss_ratio = self.configs.get("fwd_loss_ratio", 0.01)
         self.kl_div_ratio = self.configs.get("kl_div_ratio", 0.05)
         self.clip_norm_ratio = self.configs.get("clip_norm_ratio", 0.05)
 
         self.vl_cotrain_ratio = self.configs.get("vl_cotrain_ratio", 0.05)
         if (
-                self.configs["act_head"] is not None
-                and self.configs["act_head"]["action_space"] == "discrete"
+            self.configs["act_head"] is not None
+            and self.configs["act_head"]["action_space"] == "discrete"
         ):
             self.vl_cotrain_ratio *= 10
 
@@ -120,7 +130,7 @@ class BaseTrainer(pl.LightningModule):
     def from_checkpoint(cls, ckpt_path=None, ckpt_source="torch", configs=None):
         if ckpt_path is None:
             assert (
-                    configs is not None
+                configs is not None
             ), "ckpt_path and configs are both None for initialization."
             return cls(configs)
 
@@ -141,7 +151,7 @@ class BaseTrainer(pl.LightningModule):
                 state_dict = checkpoint["model_state_dict"]
             else:
                 raise KeyError(
-                    f"The checkpoint must has state_dict or model_state_dict as key"
+                    "The checkpoint must has state_dict or model_state_dict as key"
                 )
 
             state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
@@ -172,28 +182,49 @@ class BaseTrainer(pl.LightningModule):
             #   Here the solution is to convert the DeepSpeed model to FP32, then just load it as a torch model.
 
             # convert deepspeed checkpoint to lightning
-            coverted_path = cls.get_converted_fp32_paths(ckpt_path)
+            # converted_path = cls.get_converted_fp32_paths(ckpt_path)
+            converted_path = ckpt_path.replace(".ckpt", ".pt")
 
-            if not os.path.exists(coverted_path):
-                if dist.get_rank() == 0:
+            if not os.path.exists(converted_path):
+                if not dist.is_initialized() or dist.get_rank() == 0:
                     from robovlms.utils.zero_to_fp32 import (
                         convert_zero_checkpoint_to_fp32_state_dict,
                     )
 
-                    print(f"converting {ckpt_path} to {coverted_path}")
-                    convert_zero_checkpoint_to_fp32_state_dict(ckpt_path, coverted_path)
-                dist.barrier()
+                    print(f"converting {ckpt_path} to {converted_path}")
+                    convert_zero_checkpoint_to_fp32_state_dict(
+                        ckpt_path, converted_path
+                    )
+                if dist.is_initialized():
+                    dist.barrier()
 
             # assert os.path.exists(coverted_path), \
             #     "Please use tools/convert_deepspeed_to_fp32.py [DEEPSPEED_CKPT]" \
             #     "for checkpoint conversion first."
 
             # remove unpretrained params
-            cls._main_rank_print(f"Loading pretrained model from {coverted_path}...")
-            checkpoint = torch.load(coverted_path, map_location="cpu")
+            cls._main_rank_print(f"Loading pretrained model from {converted_path}...")
+            checkpoint = torch.load(converted_path, map_location="cpu")
 
-            model = cls(configs)
-            msg = model.load_state_dict(checkpoint["state_dict"], strict=False)
+            state_dict = checkpoint["state_dict"]
+            is_peft_checkpoint = any(
+                k.startswith("model.backbone.base_model.model.")
+                for k in state_dict.keys()
+            )
+            if not is_peft_checkpoint and configs["train_setup"]["lora_enable"]:
+                # When loading a non-LoRA checkpoint but LoRA training is enabled:
+                # 1. First disable LoRA to create the base model and load weights
+                # 2. Then set up LoRA layers after loading the base weights
+                # This ensures the base weights are loaded correctly before adding LoRA
+                configs["train_setup"]["lora_enable"] = False
+                model = cls(configs)
+                msg = model.load_state_dict(state_dict, strict=False)
+                model.model.setup_lora_model()
+                configs["train_setup"]["lora_enable"] = True
+            else:
+                model = cls(configs)
+                msg = model.load_state_dict(state_dict, strict=False)
+
             cls._main_rank_print(msg)
             return model
 
@@ -203,7 +234,7 @@ class BaseTrainer(pl.LightningModule):
 
     def configure_optimizers(self):
         eff_batch_size = (
-                self.configs["batch_size"] * self.num_gpus * (self.configs["seq_len"] - 1)
+            self.configs["batch_size"] * self.num_gpus * (self.configs["seq_len"] - 1)
         )
         eff_lr = self.configs["learning_rate"]
         self._main_rank_print("-" * 40)
@@ -270,6 +301,7 @@ class BaseTrainer(pl.LightningModule):
         # print(prediction)
         loss_arm_act = prediction.get("loss_arm_act", None)
         loss_gripper_act = prediction.get("loss_gripper_act", None)
+        loss_text = prediction.get("loss_text", None)
         loss_obs = prediction.get("loss_obs_fwd", None)
         loss_hand_obs = prediction.get("loss_hand_obs_fwd", None)
         acc_arm_act = prediction.get("acc_arm_act", None)
@@ -277,11 +309,8 @@ class BaseTrainer(pl.LightningModule):
         loss_cap = prediction.get("loss_cap", None)
         loss_kl = prediction.get("loss_kl", None)
         loss_vl_cotrain = prediction.get("loss_vl_cotrain", None)
-        cot_action_accuracy = prediction.get("cot_action_accuracy_cotrain", None)
-        cot_action_l1_loss = prediction.get("cot_action_l1_loss_cotrain", None)
-        cot_accuracy = prediction.get("cot_accuracy_cotrain", None)
 
-        ### loss logout for discrete setting
+        # loss logout for discrete setting
         action_l1 = prediction.get("action_l1_act", None)
 
         clip_l1 = prediction.get("text_l1_clip", None)
@@ -313,6 +342,9 @@ class BaseTrainer(pl.LightningModule):
         if loss_vl_cotrain is not None:
             loss += self.vl_cotrain_ratio * loss_vl_cotrain
 
+        if loss_text is not None:
+            loss += self.text_loss_ratio * loss_text
+
         output = {
             "loss": loss,
             "loss_act": loss_act,
@@ -326,9 +358,7 @@ class BaseTrainer(pl.LightningModule):
             "loss_kl": loss_kl,
             "clip_l1": clip_l1,
             "loss_vl_cotrain": loss_vl_cotrain,
-            "cot_action_accuracy": cot_action_accuracy,
-            "cot_action_l1_loss": cot_action_l1_loss,
-            "cot_accuracy": cot_accuracy
+            "loss_text": loss_text,
         }
 
         return output
@@ -392,6 +422,10 @@ class BaseTrainer(pl.LightningModule):
             seq_len = self.configs["window_size"]
             language = batch["text"].cuda()
             text_mask = batch["text_mask"].cuda()
+            if "text_labels" in batch:
+                text_labels = batch["text_labels"].cuda()
+            else:
+                text_labels = None
 
         if batch.get("action", None) is not None:
             action = batch["action"].cuda()
@@ -445,6 +479,19 @@ class BaseTrainer(pl.LightningModule):
         if fwd_mask is not None:
             fwd_mask = fwd_mask.bool().cuda()
 
+        # data preparation for grpo training
+        instruction_text = batch.get("instruction_text", None)
+        if instruction_text is not None:
+            instruction_text = instruction_text.cuda()
+
+        instruction_text_mask = batch.get("instruction_text_mask", None)
+        if instruction_text_mask is not None:
+            instruction_text_mask = instruction_text_mask.cuda()
+
+        instruction_text_labels = batch.get("instruction_text_labels", None)
+        if instruction_text_labels is not None:
+            instruction_text_labels = instruction_text_labels.cuda()
+
         # data preparation for discrete action inputs and labels
         instr_and_action_ids = batch.get("instr_and_action_ids", None)
         if instr_and_action_ids is not None:
@@ -468,6 +515,7 @@ class BaseTrainer(pl.LightningModule):
             hand_rgb,
             attention_mask,
             language,
+            text_labels,
             text_mask,
             fwd_rgb_chunck,
             fwd_hand_rgb_chunck,
@@ -482,6 +530,9 @@ class BaseTrainer(pl.LightningModule):
             instr_and_action_mask,
             raw_text,
             rel_state,
+            instruction_text,
+            instruction_text_labels,
+            instruction_text_mask,
             data_source,
         )
 
@@ -494,6 +545,7 @@ class BaseTrainer(pl.LightningModule):
                 hand_rgb,
                 attention_mask,
                 language,
+                text_labels,
                 text_mask,
                 fwd_rgb_chunck,
                 fwd_hand_rgb_chunck,
@@ -508,6 +560,9 @@ class BaseTrainer(pl.LightningModule):
                 instr_and_action_mask,
                 raw_text,
                 rel_state,
+                instruction_text,
+                instruction_text_labels,
+                instruction_text_mask,
                 data_source,
             ) = self._process_batch(batch)
             # import pdb; pdb.set_trace()
@@ -515,6 +570,7 @@ class BaseTrainer(pl.LightningModule):
                 rgb,
                 language,
                 attention_mask=text_mask,
+                lang_labels=text_labels,
                 action_labels=(arm_action_chunck, gripper_action_chunck),
                 action_mask=chunck_mask,
                 caption_labels=(
@@ -545,13 +601,11 @@ class BaseTrainer(pl.LightningModule):
             if self.act_pred:
                 prog_bar_set.add("loss_arm_act")
                 prog_bar_set.add("loss_gripper_act")
+                prog_bar_set.add("loss_text")
                 prog_bar_set.add("acc_arm_act")
                 prog_bar_set.add("acc_gripper_act")
                 prog_bar_set.add("action_l1")
                 prog_bar_set.add("clip_l1")
-                prog_bar_set.add("cot_action_accuracy")
-                prog_bar_set.add("cot_action_l1_loss")
-                prog_bar_set.add("cot_accuracy")
             if self.fwd_pred:
                 prog_bar_set.add("loss_obs_fwd")
                 if self.fwd_pred_hand:
@@ -582,6 +636,7 @@ class BaseTrainer(pl.LightningModule):
             hand_rgb,
             attention_mask,
             language,
+            text_labels,
             text_mask,
             fwd_rgb_chunck,
             fwd_hand_rgb_chunck,
@@ -596,6 +651,9 @@ class BaseTrainer(pl.LightningModule):
             instr_and_action_mask,
             raw_text,
             rel_state,
+            instruction_text,
+            instruction_text_labels,
+            instruction_text_mask,
             data_source,
         ) = self._process_batch(batch)
 
@@ -603,6 +661,7 @@ class BaseTrainer(pl.LightningModule):
             rgb,
             language,
             attention_mask=text_mask,
+            lang_labels=text_labels,
             action_labels=(arm_action_chunck, gripper_action_chunck),
             action_mask=chunck_mask,
             caption_labels=(
@@ -623,8 +682,8 @@ class BaseTrainer(pl.LightningModule):
             instr_and_action_labels=instr_and_action_labels,
             instr_and_action_mask=instr_and_action_mask,
             raw_text=raw_text,
-            data_source=data_source,
             rel_state=rel_state,
+            data_source=data_source,
         )
 
         output = self._get_loss(prediction)
@@ -632,14 +691,13 @@ class BaseTrainer(pl.LightningModule):
         prog_bar_set = {"loss"}
         if self.act_pred:
             prog_bar_set.add("loss_arm_act")
+            prog_bar_set.add("acc_reward")
+            prog_bar_set.add("loss_text")
             prog_bar_set.add("loss_gripper_act")
             prog_bar_set.add("acc_arm_act")
             prog_bar_set.add("acc_gripper_act")
             prog_bar_set.add("action_l1")
             prog_bar_set.add("clip_l1")
-            prog_bar_set.add("cot_action_accuracy")
-            prog_bar_set.add("cot_action_l1_loss")
-            prog_bar_set.add("cot_accuracy")
         if self.fwd_pred:
             prog_bar_set.add("loss_obs")
             if self.fwd_pred_hand:
@@ -655,7 +713,12 @@ class BaseTrainer(pl.LightningModule):
         )
         return output["loss"]
 
-    def inference_step(self, batch):
+    def inference_step(
+        self,
+        batch,
+        use_cot: bool = False,
+    ):
+
         with torch.no_grad():
             # import pdb; pdb.set_trace()
             (
@@ -663,6 +726,7 @@ class BaseTrainer(pl.LightningModule):
                 hand_rgb,
                 attention_mask,
                 language,
+                text_labels,
                 text_mask,
                 fwd_rgb_chunck,
                 fwd_hand_rgb_chunck,
@@ -677,6 +741,9 @@ class BaseTrainer(pl.LightningModule):
                 instr_and_action_mask,
                 raw_text,
                 rel_state,
+                instruction_text,
+                instruction_text_labels,
+                instruction_text_mask,
                 data_source,
             ) = self._process_batch(batch)
 
@@ -684,6 +751,7 @@ class BaseTrainer(pl.LightningModule):
                 rgb,
                 language,
                 attention_mask=text_mask,
+                lang_labels=text_labels,
                 action_labels=(arm_action_chunck, gripper_action_chunck),
                 action_mask=chunck_mask,
                 # FIXME: hardcode here
@@ -706,6 +774,7 @@ class BaseTrainer(pl.LightningModule):
                 instr_and_action_mask=instr_and_action_mask,
                 raw_text=raw_text,
                 rel_state=rel_state,
+                use_cot=use_cot,
             )
 
             return prediction

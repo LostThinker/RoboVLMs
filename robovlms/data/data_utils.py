@@ -253,7 +253,7 @@ def generate_chunck_data(data, window_size, chunk_size):
     raw_data_shape = data.shape[2:]
     data_flatten = data.flatten().view(bs, seq_len, -1)
     assert (
-            seq_len == window_size + chunk_size
+        seq_len == window_size + chunk_size
     ), f"The sequence length should be {window_size + chunk_size}"
     data_flatten = repeat(data_flatten, "b s d -> b w s d", w=window_size)
 
@@ -270,23 +270,26 @@ def generate_chunck_data(data, window_size, chunk_size):
     return data_flatten
 
 
-def get_text_function(tokenizer, tokenizer_type, max_length=256):
+def get_text_function(tokenizer, tokenizer_type, vanilla=False):
     import functools
 
     if tokenizer_type == "flamingo":
 
-        def preprocess_text_flamingo(sample, tokenizer):
-            tokenizer.padding_side = "right"
+        def preprocess_text_flamingo(sample, tokenizer, padding_side="right"):
+            tokenizer.padding_side = padding_side
             sample = [
                 (f"<image>{s.strip()}<|endofchunk|>{tokenizer.eos_token}")
                 for s in sample
             ]
+
+            add_special_tokens = False if vanilla else True
             text = tokenizer(
                 sample,
-                max_length=max_length,
+                max_length=1024,
                 padding="longest",
                 truncation="only_first",
                 return_tensors="pt",
+                add_special_tokens=add_special_tokens,
             )
             return text["input_ids"], text["attention_mask"]
 
@@ -294,8 +297,8 @@ def get_text_function(tokenizer, tokenizer_type, max_length=256):
     elif tokenizer_type == "llava":
         DEFAULT_IMAGE_TOKEN = "<image>"
 
-        def preprocess_text_llava(sample, tokenizer):
-            # tokenizer.padding_side = "right"
+        def preprocess_text_llava(sample, tokenizer, padding_side="right"):
+            tokenizer.padding_side = padding_side
             # sample = [
             #     (f"{tokenizer.bos_token}{DEFAULT_IMAGE_TOKEN}{s.strip()}{tokenizer.eos_token}") for s in sample
             # ]
@@ -312,13 +315,13 @@ def get_text_function(tokenizer, tokenizer_type, max_length=256):
     elif tokenizer_type == "llava_orig":
         DEFAULT_IMAGE_TOKEN = "<image>"
 
-        def preprocess_text_llava(sample, tokenizer):
+        def preprocess_text_llava(sample, tokenizer, padding_side="right"):
             system_prompt = "You are a helpful language and vision assistant. \
             You are able to understand the visual content that the user provides, \
             and assist the user with a variety of tasks using natural language."
             rgb_prompt = "This is the static camera observation: "
             gripper_prompt = "This is the egocentric girpper camera observation: "
-            tokenizer.padding_side = "right"
+            tokenizer.padding_side = padding_side
             sample = [
                 (
                     f"{tokenizer.bos_token}{system_prompt}{rgb_prompt}{DEFAULT_IMAGE_TOKEN}{gripper_prompt}{DEFAULT_IMAGE_TOKEN}{s.strip()}{tokenizer.eos_token}"
@@ -327,7 +330,7 @@ def get_text_function(tokenizer, tokenizer_type, max_length=256):
             ]
             text = tokenizer(
                 sample,
-                max_length=max_length,
+                max_length=1024,
                 padding="longest",
                 truncation="only_first",
                 return_tensors="pt",
@@ -338,8 +341,8 @@ def get_text_function(tokenizer, tokenizer_type, max_length=256):
         return functools.partial(preprocess_text_llava, tokenizer=tokenizer)
     elif tokenizer_type == "qwen":
 
-        def preprocess_text_qwen(sample, tokenizer):
-            tokenizer.padding_side = "right"
+        def preprocess_text_qwen(sample, tokenizer, padding_side="right"):
+            tokenizer.padding_side = padding_side
             tokenizer.pad_token_id = tokenizer.eod_id
             sample = [(f"{s.strip()}") for s in sample]
             text = tokenizer(
@@ -347,37 +350,45 @@ def get_text_function(tokenizer, tokenizer_type, max_length=256):
                 truncation="only_first",
                 return_tensors="pt",
                 padding="longest",
-                max_length=512,
+                max_length=1024,
             )
             return text["input_ids"], text["attention_mask"]
 
         return functools.partial(preprocess_text_qwen, tokenizer=tokenizer)
     elif tokenizer_type == "kosmos":
 
-        def preprocess_text_kosmos(sample, tokenizer):
-            tokenizer.padding_side = "right"
-            sample = [(f"<grounding>An image of a robot {s.strip()}") for s in sample]
+        def preprocess_text_kosmos(sample, tokenizer, padding_side="right"):
+            tokenizer.padding_side = padding_side
+            if vanilla:
+                sample = [(f"<grounding>{s.strip()}") for s in sample]
+            else:
+                sample = [
+                    (f"<grounding>An image of a robot {s.strip()}") for s in sample
+                ]
+
+            add_special_tokens = False if vanilla else True
             text = tokenizer(
                 sample,
                 truncation="only_first",
                 return_tensors="pt",
                 padding="longest",
-                max_length=512,
+                max_length=1024,
+                add_special_tokens=add_special_tokens,
             )
             return text["input_ids"], text["attention_mask"]
 
         return functools.partial(preprocess_text_kosmos, tokenizer=tokenizer)
     elif tokenizer_type == "moondream":
 
-        def preprocess_text_moondream(sample, tokenizer):
-            tokenizer.padding_side = "right"
+        def preprocess_text_moondream(sample, tokenizer, padding_side="right"):
+            tokenizer.padding_side = padding_side
             sample = [(f"<|endoftext|>{s.strip()}") for s in sample]
             text = tokenizer(
                 sample,
                 truncation="only_first",
                 return_tensors="pt",
                 padding="longest",
-                max_length=512,
+                max_length=1024,
                 add_special_tokens=True,
             )
             return text["input_ids"], text["attention_mask"]
@@ -385,15 +396,15 @@ def get_text_function(tokenizer, tokenizer_type, max_length=256):
         return functools.partial(preprocess_text_moondream, tokenizer=tokenizer)
     elif tokenizer_type == "uform":
 
-        def preprocess_text_uform(sample, tokenizer):
-            tokenizer.padding_side = "right"
+        def preprocess_text_uform(sample, tokenizer, padding_side="right"):
+            tokenizer.padding_side = padding_side
             sample = [(f"<image> {s.strip()}") for s in sample]
             text = tokenizer(
                 sample,
                 truncation="only_first",
                 return_tensors="pt",
                 padding="longest",
-                max_length=512,
+                max_length=1024,
                 add_special_tokens=True,
             )
             return text["input_ids"], text["attention_mask"]
@@ -401,15 +412,18 @@ def get_text_function(tokenizer, tokenizer_type, max_length=256):
         return functools.partial(preprocess_text_uform, tokenizer=tokenizer)
     elif tokenizer_type == "paligemma":
 
-        def preprocess_text_paligemma(sample, tokenizer):
-            tokenizer.padding_side = "right"
-            sample = [(f"{tokenizer.eos_token}{s.strip()}\n") for s in sample]
+        def preprocess_text_paligemma(sample, tokenizer, padding_side="right"):
+            tokenizer.padding_side = padding_side
+            sample = [
+                (f"{tokenizer.bos_token}{s.strip()}{tokenizer.eos_token}")
+                for s in sample
+            ]
             text = tokenizer(
                 sample,
                 truncation="only_first",
                 return_tensors="pt",
                 padding="longest",
-                max_length=512,
+                max_length=1024,
                 add_special_tokens=False,
             )
             return text["input_ids"], text["attention_mask"]
@@ -417,15 +431,15 @@ def get_text_function(tokenizer, tokenizer_type, max_length=256):
         return functools.partial(preprocess_text_paligemma, tokenizer=tokenizer)
     else:
 
-        def preprocess_text_default(sample, tokenizer):
-            tokenizer.padding_side = "right"
+        def preprocess_text_default(sample, tokenizer, padding_side="right"):
+            tokenizer.padding_side = padding_side
             sample = [(f"<|endoftext|>{s.strip()}") for s in sample]
             text = tokenizer(
                 sample,
                 truncation="only_first",
                 return_tensors="pt",
                 padding="longest",
-                max_length=512,
+                max_length=1024,
                 add_special_tokens=True,
             )
             return text["input_ids"], text["attention_mask"]
@@ -684,7 +698,7 @@ class PatchMask(nn.Module):
         # Mask out the patches.
         masked_x = x.clone()
         for i, j, k in mask_coords:
-            masked_x[i, :, j: j + self.patch_size, k: k + self.patch_size] = 0.0
+            masked_x[i, :, j : j + self.patch_size, k : k + self.patch_size] = 0.0
 
         return masked_x
 
@@ -707,11 +721,11 @@ def unnoramalize_action(action, action_min=-1, action_max=1, maintain_last=False
 
 
 def get_chunked_episode(
-        window_sample: Literal["sliding", "range"],
-        left_pad: bool,
-        window_size: int,
-        fwd_pred_next_n: int,
-        episode_idx_range: np.ndarray,
+    window_sample: Literal["sliding", "range"],
+    left_pad: bool,
+    window_size: int,
+    fwd_pred_next_n: int,
+    episode_idx_range: np.ndarray,
 ):
     if window_sample == "range":
         window_range = np.arange(window_size)
@@ -745,9 +759,9 @@ def get_chunked_episode(
 def permute_tensor_last_dim(x: torch.Tensor, insert_dim: int):
     old_permutation = list(range(x.ndim))
     new_permutation = (
-            old_permutation[:insert_dim]
-            + [old_permutation[-1]]
-            + old_permutation[insert_dim:-1]
+        old_permutation[:insert_dim]
+        + [old_permutation[-1]]
+        + old_permutation[insert_dim:-1]
     )
     return x.permute(new_permutation).contiguous()
 

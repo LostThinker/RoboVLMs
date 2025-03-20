@@ -21,7 +21,7 @@ export NCCL_SOCKET_IFNAME="*"
 
 ## huggingface settings if needed
 # export HF_HOME=""
-# export HF_ENDPOINT='https://hf-mirror.com'
+export HF_ENDPOINT='https://hf-mirror.com'
 
 # setup distributed training args
 GPUS_PER_NODE=4

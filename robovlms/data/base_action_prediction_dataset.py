@@ -54,6 +54,11 @@ class ActionPredictionBatchTransform:
     min_action: float
     max_action: float
 
+    use_cot: bool
+    cot_tags: List[str]
+    use_cot_stage_token: bool
+    cot_dropout: List[float]
+
     @staticmethod
     def refine_action_at_gripper_dim(
         action: Union[np.ndarray, torch.Tensor], value: int = -1, status: bool = False
@@ -171,8 +176,40 @@ class ActionPredictionBatchTransform:
             labels[-1] = IGNORE_INDEX
         return input_ids, labels, attention_masks
 
+    def _build_reasoning_prompt(self, reasoning: str):
+        reasoning = reasoning.split("@")
+        reasoning_dict = {}
+        for k, v in zip(reasoning[::2], reasoning[1::2]):
+            reasoning_dict[k] = v
+
+        reasoning_str = ""
+        # either no reasoning or all reasoning tags exist
+        if len(reasoning_dict) > 0:
+            if isinstance(self.cot_dropout, float):
+                dropout = [np.random.rand() < self.cot_dropout] * len(self.cot_tags)
+            else:
+                dropout = [np.random.rand() < d for d in self.cot_dropout]
+
+            for tag, drop in zip(self.cot_tags, dropout):
+                if drop:
+                    continue
+                thought = reasoning_dict[tag].strip()
+                if len(thought) == 0:
+                    thought = "None."
+                reasoning_str += f"{tag.upper()}: {thought}"
+                if self.use_cot_stage_token:
+                    reasoning_str += "<|cotstage|>"
+                else:
+                    reasoning_str += " "
+        reasoning_str += "ACTION:"
+        return reasoning_str
+
     def wrap_instruction_and_action_interleave(
-        self, task_description: str, action: torch.Tensor, action_mask: torch.Tensor
+        self,
+        task_description: str,
+        action: torch.Tensor,
+        action_mask: torch.Tensor,
+        reasoning: Optional[str],
     ):
         if self.mode == "train":
             assert action.shape[0] == self.window_size + self.fwd_pred_next_n - 1
@@ -201,27 +238,72 @@ class ActionPredictionBatchTransform:
                     else f"What {self.fwd_pred_next_n} step actions should the robot take to {task_description}?"
                 ),
             },
-            {"from": "gpt", "value": ""},
+            {
+                "from": "gpt",
+                "value": (
+                    "" if reasoning is None else self._build_reasoning_prompt(reasoning)
+                ),
+            },
         ]
 
-        input_ids = []
-        for turn in conversation:
+        for idx, turn in enumerate(conversation):
             prompt_builder.add_turn(turn["from"], turn["value"])
+            if idx == 0:
+                instruction_prompt = prompt_builder.get_prompt()
 
         # Tokenize (w/ `base_tokenizer`)
-        input_ids = self.tokenizer(
-            prompt_builder.get_prompt(), add_special_tokens=True
-        ).input_ids
-        if (
-            self.tokenizer.eos_token is not None
-            and self.tokenizer.eos_token_id != input_ids[-1]
-        ):
-            input_ids = input_ids + [self.tokenizer.eos_token_id]
+        prompt_text = prompt_builder.get_prompt()
+        input_ids, attention_mask = self.text_fn([prompt_text])
+        input_ids = input_ids.squeeze(0)
+        attention_mask = attention_mask.squeeze(0)
+
+        if reasoning is None:
+            # if no reasoning, all texts should be marked as instruction and will not be predicted
+            instruction_ids, instruction_mask = (
+                input_ids.clone(),
+                attention_mask.clone(),
+            )
+            padded_instruction_mask = torch.ones_like(input_ids).bool()
+        else:
+            instruction_ids, instruction_mask = self.text_fn([instruction_prompt])
+            instruction_ids = instruction_ids.squeeze(0)
+            instruction_mask = instruction_mask.squeeze(0)
+            padded_instruction_ids = torch.ones_like(input_ids) * IGNORE_INDEX
+            padded_instruction_ids[: len(instruction_ids)] = instruction_ids
+            padded_instruction_mask = torch.where(
+                (input_ids == padded_instruction_ids), True, False
+            )
+
+        instruction_labels = instruction_ids.clone()
+        instruction_labels[torch.logical_not(instruction_mask)] = IGNORE_INDEX
+
+        input_labels = input_ids.clone()
+        input_labels[torch.logical_not(attention_mask) | padded_instruction_mask] = (
+            IGNORE_INDEX
+        )
+
+        # if (
+        #     self.tokenizer.eos_token is not None
+        #     and self.tokenizer.eos_token_id != input_ids[-1]
+        # ):
+        #     input_ids = torch.cat(
+        #         [input_ids, torch.tensor([self.tokenizer.eos_token_id])]
+        #     )
+        #     input_labels = torch.cat(
+        #         [input_labels, torch.tensor([self.tokenizer.eos_token_id])]
+        #     )
+        #     attention_mask = torch.cat([attention_mask, torch.tensor([True])])
 
         if not self.discrete:
-            all_input_ids = torch.tensor(input_ids)
-            all_labels = all_input_ids
-            return all_input_ids, all_labels, torch.ones_like(all_input_ids, dtype=bool)
+            return (
+                input_ids,
+                input_labels,
+                attention_mask,
+                prompt_text,
+                instruction_ids,
+                instruction_labels,
+                instruction_mask,
+            )
 
         action_ids = self.action_tokenizer.encode_actions_to_token_ids(action)
 
@@ -248,7 +330,15 @@ class ActionPredictionBatchTransform:
         all_input_ids = torch.stack(all_input_ids)
         all_labels = torch.stack(all_labels)
         all_masks = torch.stack(all_masks)
-        return all_input_ids, all_labels, all_masks
+        return (
+            all_input_ids,
+            all_labels,
+            all_masks,
+            prompt_text,
+            instruction_ids,
+            instruction_labels,
+            instruction_mask,
+        )
 
     def wrap_instruction_and_action_segment(
         self, task_description, action: torch.Tensor, action_mask: torch.Tensor
@@ -361,6 +451,8 @@ class ActionPredictionBatchTransform:
         action: np.ndarray,
         episode_mask: np.ndarray,
         images: np.ndarray,
+        reasoning: str,
+        step_ids: str,
         gripper_images: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         """Converts an item to the format expected by collator/models."""
@@ -385,19 +477,29 @@ class ActionPredictionBatchTransform:
                 input_ids,
                 labels,
                 attention_mask,
+                prompt_text,
+                instruction_ids,
+                instruction_labels,
+                instruction_mask,
             ) = self.wrap_instruction_and_action_interleave(
-                task_description, action, action_mask
+                task_description, action, action_mask, reasoning
             )
         elif self.organize_type == "segment":
+            raise NotImplementedError(
+                "Segment organize type for reasoning is not implemented"
+            )
             (
                 input_ids,
                 labels,
                 attention_mask,
             ) = self.wrap_instruction_and_action_segment(
-                task_description, action, action_mask
+                task_description, action, action_mask, reasoning
             )
         else:
             raise TypeError("The organize type must be interleave or segment")
+
+        if isinstance(step_ids, bytes):
+            step_ids = step_ids.decode()
 
         return dict(
             image_tensors=image_tensors,
@@ -412,6 +514,11 @@ class ActionPredictionBatchTransform:
             action_mask=action_mask,
             action_chunk=action_chunk,
             action_chunk_mask=action_chunk_mask,
+            raw_text=prompt_text,
+            step_ids=step_ids,
+            instruction_ids=instruction_ids,
+            instruction_labels=instruction_labels,
+            instruction_mask=instruction_mask,
         )
 
 
@@ -439,6 +546,11 @@ class ActionPredictionPaddedCollator:
             action_mask,
             action_chunk,
             action_chunk_mask,
+            raw_text,
+            step_ids,
+            instruction_ids,
+            instruction_labels,
+            instruction_mask,
         ) = tuple(
             [instance[key] for instance in instances]
             for key in (
@@ -454,11 +566,20 @@ class ActionPredictionPaddedCollator:
                 "action_mask",
                 "action_chunk",
                 "action_chunk_mask",
+                "raw_text",
+                "step_ids",
+                "instruction_ids",
+                "instruction_labels",
+                "instruction_mask",
             )
         )
         input_ids = pad_sequences(input_ids, self.pad_token_id)
         labels = pad_sequences(labels, IGNORE_INDEX)
         attention_mask = pad_sequences(attention_mask, False)
+
+        instruction_ids = pad_sequences(instruction_ids, self.pad_token_id)
+        instruction_labels = pad_sequences(instruction_labels, IGNORE_INDEX)
+        instruction_mask = pad_sequences(instruction_mask, False)
 
         image_tensors = torch.stack(image_tensors)
         gripper_image_tensors = (
@@ -495,6 +616,7 @@ class ActionPredictionPaddedCollator:
             "fwd_hand_rgb_chunck": gripper_image_chunk,
             "fwd_mask": image_chunk_mask,
             "text": input_ids,
+            "text_labels": labels,
             "text_mask": attention_mask,
             "action": action_tensors,
             "action_mask": action_mask,
@@ -503,6 +625,11 @@ class ActionPredictionPaddedCollator:
             "instr_and_action_ids": input_ids,
             "instr_and_action_labels": labels,
             "instr_and_action_mask": attention_mask,
+            "raw_text": raw_text,
+            "file_idx": step_ids,
+            "instruction_text": instruction_ids,
+            "instruction_text_labels": instruction_labels,
+            "instruction_text_mask": instruction_mask,
         }
         return output
 
@@ -538,6 +665,10 @@ class ActionPredictionDataset(BaseTaskDataset):
         x_mean: int = 0,
         x_std: int = 1,
         use_mu_law: bool = False,
+        use_cot: bool = False,
+        cot_tags: List[str] = [],
+        use_cot_stage_token: bool = False,
+        cot_dropout: Union[float, List[float]] = 0.0,
         **kwargs,
     ):
         """
@@ -600,8 +731,24 @@ class ActionPredictionDataset(BaseTaskDataset):
         ) = (norm_action, norm_min, norm_max, regular_action, x_mean, x_std, use_mu_law)
 
         self.n_bin, self.min_action, self.max_action = n_bin, min_action, max_action
+        self.use_cot, self.cot_tags, self.use_cot_stage_token = (
+            use_cot,
+            cot_tags,
+            use_cot_stage_token,
+        )
+        self.cot_dropout = cot_dropout
+        if isinstance(cot_dropout, list):
+            assert len(cot_dropout) == len(cot_tags), f"cot_dropout must be the same length as cot_tags, but got {cot_dropout} and {cot_tags}"
+
         kwargs["task_type"] = "action"
         super().__init__(**kwargs)
+        if self.use_cot and self.use_cot_stage_token:
+            if "<|cotstage|>" not in self.tokenizer.special_tokens_map.get(
+                "additional_special_tokens", []
+            ):
+                self.tokenizer.add_special_tokens(
+                    {"additional_special_tokens": ["<|cotstage|>"]}
+                )
 
     def init_batch_transform(self):
         if self.discrete:
@@ -638,6 +785,10 @@ class ActionPredictionDataset(BaseTaskDataset):
             use_mu_law=self.use_mu_law,
             min_action=self.min_action,
             max_action=self.max_action,
+            use_cot=self.use_cot,
+            cot_tags=self.cot_tags,
+            use_cot_stage_token=self.use_cot_stage_token,
+            cot_dropout=self.cot_dropout,
         )
 
     def init_collater_fn(self):

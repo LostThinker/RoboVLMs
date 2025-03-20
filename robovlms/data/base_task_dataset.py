@@ -90,15 +90,18 @@ class BaseTaskDataset(Dataset, ABC):
         self.collater_fn = self.init_collater_fn()
 
     def init_tokenizer(self, tokenizer):
-        if isinstance(tokenizer, dict):
-            tokenizer_type = tokenizer["tokenizer_type"]
-            max_text_len = tokenizer["max_text_len"]
-            tokenizer = build_tokenizer(tokenizer_config=tokenizer)
-            self.tokenizer = tokenizer
-            self.text_fn = get_text_function(tokenizer, tokenizer_type, max_text_len)
-        else:
-            self.tokenizer = tokenizer
-            self.text_fn = tokenizer
+        self.tokenizer = tokenizer
+        self.text_fn = get_text_function(tokenizer, self.model_name)
+
+        # if isinstance(tokenizer, dict):
+        #     tokenizer_type = tokenizer["tokenizer_type"]
+        #     max_text_len = tokenizer["max_text_len"]
+        #     tokenizer = build_tokenizer(tokenizer_config=tokenizer)
+        #     self.tokenizer = tokenizer
+        #     self.text_fn = get_text_function(tokenizer, tokenizer_type, max_text_len)
+        # else:
+        #     self.tokenizer = tokenizer
+        #     self.text_fn = tokenizer
 
     def init_image_fn(self, rgb_pad, gripper_pad, traj_cons, image_fn: Callable):
         self.rgb_shift = RandomShiftsAug(rgb_pad) if rgb_pad != -1 else None

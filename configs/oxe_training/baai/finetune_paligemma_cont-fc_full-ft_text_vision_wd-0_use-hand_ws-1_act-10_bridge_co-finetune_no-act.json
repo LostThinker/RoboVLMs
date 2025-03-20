@@ -16,7 +16,7 @@
     0.26130258,
     0.27577711
   ],
-  "window_size": 16,
+  "window_size": 1,
   "fwd_pred_next_n": 10,
   "arm_gripper_loss_ratio": 0.01,
   "cap_loss_ratio": 0.05,
@@ -24,7 +24,7 @@
   "vl_cotrain_ratio": 1,
   "seed": 123,
   "batch_size": 4,
-  "num_workers": 16,
+  "num_workers": 2,
   "data_scale": 1,
   "optimizer": "adam",
   "learning_rate": 2e-5,
@@ -47,12 +47,12 @@
   "model_load_path": null,
   "model_load_source": "torch",
   "resume": null,
-  "model_path": ".vlms/paligemma-3b-pt-224",
-  "model_config": ".vlms/paligemma-3b-pt-224/config.json",
+  "model_path": "/share/project/lxh/project/VLMs/paligemma-3b-pt-224",
+  "model_config": "/share/project/lxh/project/VLMs/paligemma-3b-pt-224/config.json",
   "deepspeed_config": "configs/deepspeed/config.json",
   "train_setup": {
     "precision": "bf16",
-    "predict_action": true,
+    "predict_action": false,
     "predict_forward": false,
     "predict_forward_hand": false,
     "predict_caption": false,
@@ -82,39 +82,39 @@
   },
   "act_encoder": null,
   "act_head": {
-    "type": "LSTMDecoder",
-    "hidden_size": 1024,
-    "action_dim": 7,
-    "down_sample": "none",
-    "latent": 1,
-    "fwd_pred_next_n": 1,
-    "window_size": 1,
-    "action_space": "continuous",
-    "with_history": true,
-    "history_type": "post",
-    "n_bin": 256,
-    "min_action": -1,
-    "max_action": 1
+        "type": "FCDecoder",
+        "hidden_size": 1024,
+        "action_dim": 7,
+        "down_sample": "none",
+        "latent": 1,
+        "fwd_pred_next_n": 1,
+        "window_size": 1,
+        "action_space": "continuous",
+        "with_history": true,
+        "history_type": "post",
+        "n_bin": 256,
+        "min_action": -1,
+        "max_action": 1
   },
   "fwd_head": null,
   "tokenizer": {
     "type": "AutoProcessor",
-    "pretrained_model_name_or_path": ".vlms/paligemma-3b-pt-224",
+    "pretrained_model_name_or_path": "/share/project/lxh/project/VLMs/paligemma-3b-pt-224",
     "tokenizer_type": "paligemma",
-    "max_text_len": 256,
+    "max_text_len": 512,
     "additional_special_tokens": null
   },
   "vlm": {
     "type": "PaliGemmaForConditionalGeneration",
     "name": "paligemma",
-    "pretrained_model_name_or_path": ".vlms/paligemma-3b-pt-224"
+    "pretrained_model_name_or_path": "/share/project/lxh/project/VLMs/paligemma-3b-pt-224"
   },
   "trainer": {
     "accelerator": "gpu",
     "strategy": "deepspeed_stage_2",
-    "precision": "16",
+    "precision": "32",
     "logger": [
-      "tensorboard"
+      "tensorboard", "wandb"
     ],
     "gradient_clip_val": 1.0,
     "use_distributed_sampler": false,
@@ -122,15 +122,16 @@
     "max_epochs": 5,
     "val_check_interval": 10000,
     "check_val_every_n_epoch": null,
-    "max_steps": 50000,
-    "accumulate_grad_batches": 1
+    "max_steps": 100000,
+    "accumulate_grad_batches": 1,
+    "limit_val_batches": 100
   },
   "use_cot_data": true,
   "train_dataset": [
     {
       "type": "ECoTDataset",
       "data_root_dir": "/share/project/lxh/datasets/tf_datasets",
-      "reasoning_data_dir": "datasets/embodied_features_bridge.json",
+      "reasoning_data_dir": "/share/project/lxh/datasets/tf_datasets/bridge_orig/embodied_features_bridge.json",
       "model_name": "cotrain_paligemma",
       "image_aug": true,
       "mode": "train",
@@ -168,8 +169,8 @@
   "val_dataset": [
     {
       "type": "ECoTDataset",
-      "data_root_dir": "datasets/open-x-embodiment",
-      "reasoning_data_dir": "datasets/embodied_features_bridge.json",
+      "data_root_dir": "/share/project/lxh/datasets/tf_datasets",
+      "reasoning_data_dir": "/share/project/lxh/datasets/tf_datasets/bridge_orig/embodied_features_bridge.json",
       "data_dir": "bridge",
       "model_name": "cotrain_paligemma",
       "mode": "train",
@@ -204,11 +205,8 @@
       "split": "validation"
     }
   ],
-  "norm_action": true,
-  "norm_min": -0.65,
-  "norm_max": 0.65,
   "train_weights": [
-    9,
+    3,
     1,
     1,
     1

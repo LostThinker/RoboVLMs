@@ -1,5 +1,4 @@
 import os
-
 import argparse
 import json
 from pathlib import Path
@@ -12,14 +11,13 @@ import datetime
 
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.trainer import Trainer
-from lightning.pytorch.loggers import TensorBoardLogger, CSVLogger
+from lightning.pytorch.loggers import TensorBoardLogger, CSVLogger, WandbLogger
 from lightning.pytorch.strategies import DDPStrategy
 from lightning import seed_everything
 import torch.distributed as dist
 
 from robovlms.train.base_trainer import BaseTrainer
 from robovlms.data.datamodule.gr_datamodule import GRDataModule
-# from robovlms.data.datamodule.co_train_datamodule import CoDataModule
 from robovlms.data.data_utils import preprocess_image
 from robovlms.utils.setup_callback import SetupCallback
 
@@ -80,6 +78,14 @@ def init_trainer_config(configs):
                 )
             elif logger == "csv":
                 loggers.append(CSVLogger(configs["log_dir"].as_posix(), name=exp_name))
+            elif logger == "wandb":
+                loggers.append(
+                    WandbLogger(
+                        project=configs.get("project", "RoboVLM"),
+                        config=configs,
+                        dir=(configs["log_dir"] / "wandb").as_posix(),
+                    )
+                )
             else:
                 raise NotImplementedError
 
@@ -109,7 +115,8 @@ def init_trainer_config(configs):
 
 
 def experiment(variant):
-    seed_everything(variant["seed"] + int(os.environ["RANK"]))
+    # seed_everything(variant["seed"] + int(os.environ["RANK"]))
+    seed_everything(variant["seed"])
     # import pdb; pdb.set_trace()
     trainer_config = init_trainer_config(variant)
     model_load_path = variant.get("model_load_path", None)
@@ -123,14 +130,14 @@ def experiment(variant):
             "pred_hand_image", False
         )
 
-    if not os.path.exists(variant['model_path']):
+    if "model_path" in variant and not os.path.exists(variant["model_path"]):
         repo_name = variant["model_url"].split("/")[-1].split(".")[0]
         print(
             f"VLM backbone does not exist, cloning {variant['model']} from {variant['model_url']}..."
         )
         os.system(f"git clone {variant['model_url']} .vlms/{repo_name}")
-        variant['model_path'] = ".vlms/" + repo_name
-        variant['model_config'] = os.path.join(variant['model_path'], "config.json")
+        variant["model_path"] = ".vlms/" + repo_name
+        variant["model_config"] = os.path.join(variant["model_path"], "config.json")
 
     if variant["model"] == "kosmos":
         import transformers
@@ -141,7 +148,7 @@ def experiment(variant):
                 package_dir
             )
         )
-
+        # Reload transformers module to use updated modeling file
         import importlib
 
         importlib.reload(transformers)
@@ -206,8 +213,11 @@ def experiment(variant):
             x_std=variant.get("x_std", 1),
             weights=variant.get("train_weights", None),
             tcp_rel=variant.get("tcp_rel", False),
-            # vit_name=vit_name,
-            # model_name=variant.get("model", "flamingo"),
+            model_name=variant.get("model", "flamingo"),
+            use_cot=variant.get("use_cot", False),
+            cot_tags=variant.get("cot_tags", None),
+            use_cot_stage_token=variant.get("use_cot_stage_token", True),
+            cot_file_name=variant.get("cot_file_name", "embodied_features_bridge.json"),
         ),
         "ckpt_path": variant["resume"],
     }
@@ -240,10 +250,10 @@ def load_config(config_file):
 def update_configs(configs, args):
     configs["raw_config_path"] = args["config"]
     configs["output_root"] = (
-            Path(configs["output_root"]) / configs["model"] / configs["task_name"]
+        Path(configs["output_root"]) / configs["model"] / configs["task_name"]
     )
     configs["log_root"] = (
-            Path(configs["log_root"]) / configs["model"] / configs["task_name"]
+        Path(configs["log_root"]) / configs["model"] / configs["task_name"]
     )
     configs["cache_root"] = Path(configs["cache_root"]) / configs["model"]
 
@@ -254,10 +264,10 @@ def update_configs(configs, args):
         if isinstance(v, dict):
             for sub_k, sub_v in v.items():
                 # assert sub_k in configs[k], f"{sub_k} not in configs {k}"
-                if sub_v != None:
+                if sub_v is not None:
                     configs[k][sub_k] = sub_v
         else:
-            if v != None:
+            if v is not None:
                 configs[k] = v
     return configs
 
@@ -297,6 +307,7 @@ def parse_args():
     parser.add_argument("--warmup_epochs", default=None, type=int)
     parser.add_argument("--weight_decay", default=None, type=float)
     parser.add_argument("--batch_size", default=None, type=int)
+    parser.add_argument("--num_workers", default=None, type=int)
 
     global_names = set(vars(parser.parse_known_args()[0]).keys())
 
@@ -306,6 +317,7 @@ def parse_args():
     trainer_parser.add_argument("--precision", default=None, type=str)
     trainer_parser.add_argument("--gradient_clip_val", default=None, type=float)
     trainer_parser.add_argument("--max_epochs", default=None, type=int)
+    trainer_parser.add_argument("--logger", default=None, type=str, nargs="+")
     trainer_names = set(vars(parser.parse_known_args()[0]).keys()) - global_names
 
     # Model Architecture
@@ -315,7 +327,7 @@ def parse_args():
     llm_parser.add_argument("--n_layer", default=None, type=int)
     llm_parser.add_argument("--n_head", default=None, type=int)
     llm_names = (
-            set(vars(parser.parse_known_args()[0]).keys()) - global_names - trainer_names
+        set(vars(parser.parse_known_args()[0]).keys()) - global_names - trainer_names
     )
 
     args = {}
@@ -336,143 +348,18 @@ def parse_args():
     return args
 
 
-def update_json_config(file_path, key, value):
-    # 1. 加载现有的 JSON 配置文件
-    with open(file_path, 'r') as f:
-        config = json.load(f)
-
-    # 2. 修改指定的键值
-    keys = key.split('.')  # 支持嵌套键，使用 '.' 分隔层级
-    dict_ref = config
-    for part in keys[:-1]:  # 遍历直到倒数第二层
-        dict_ref = dict_ref.get(part, {})  # 获取嵌套的字典
-    dict_ref[keys[-1]] = value  # 修改最终的键
-
-    # 3. 将修改后的配置写回到 JSON 文件
-    with open(file_path, 'w') as f:
-        json.dump(config, f, indent=2)
-
-
-def main():
-    # os.environ['CUDA_LAUNCH_BLOCKING']="1"
-    args = parse_args()
-
-    # load config files
-    configs = load_config(args.get("config"))
-    configs = update_configs(configs, args)
-
-    os.environ['PL_DEEPSPEED_CONFIG_PATH'] = configs['deepspeed_config']
-
-    # Due to a conflict in deepspeed batch size setting.
-    update_json_config(configs['deepspeed_config'], "train_micro_batch_size_per_gpu", configs['batch_size'])
-
-    # dist.init_process_group(backend="nccl")
-    experiment(variant=configs)
-
-
-def debug():
-    import os
-    import sys
-
-    # os.environ['CUDA_LAUNCH_BLOCKING']="1"
-    os.environ['RANK'] = '0'
-    # os.environ['WORLD_SIZE'] = '1'
-    # os.environ['MASTER_ADDR'] = 'localhost'
-    # os.environ['MASTER_PORT'] = '12345'
-
-    sys.argv = ["main.py",
-                "./configs/oxe_training/finetune_paligenmma_cont-lstm-post_full-ft_text_vision_wd-0_use-hand_ws-16_act-10_bridge_finetune_debug.json"]
-    args = parse_args()
-
-    args['exp_name'] = 'debug'
-    args[
-        'config'] = './configs/oxe_training/finetune_uform_cont-lstm-post_full-ft_text_vision_wd-0_use-hand_ws-16_act-10_bridge_finetune_debug.json'
-
-    # load config files
-    configs = load_config(args.get("config"))
-    configs = update_configs(configs, args)
-
-    os.environ['PL_DEEPSPEED_CONFIG_PATH'] = configs['deepspeed_config']
-
-    # Due to a conflict in deepspeed batch size setting.
-    update_json_config(configs['deepspeed_config'], "train_micro_batch_size_per_gpu", configs['batch_size'])
-
-    # dist.init_process_group(backend="nccl")
-    experiment(variant=configs)
-
-    # configs[
-    #     'model_load_path'] = "/data/user/qianlong/remote-ws/embodied-ai/vla/RoboVLMs/runs/checkpoints/uform/calvin_finetune/2025-03-05/01-31/epoch=0-step=50000.ckpt.fp32.pt"
-    # check_model(variant=configs)
-
-
-def check_model(variant):
-    seed_everything(variant["seed"] + int(os.environ["RANK"]))
-    # import pdb; pdb.set_trace()
-    trainer_config = init_trainer_config(variant)
-    model_load_path = variant.get("model_load_path", None)
-
-    trainer = Trainer(**trainer_config)
-    variant["gpus"] = trainer.num_devices
-    variant["train_setup"]["precision"] = variant["trainer"]["precision"]
-
-    if variant["fwd_head"] is not None:
-        variant["train_setup"]["predict_forward_hand"] = variant["fwd_head"].get(
-            "pred_hand_image", False
-        )
-
-    if not os.path.exists(variant['model_path']):
-        repo_name = variant["model_url"].split("/")[-1].split(".")[0]
-        print(
-            f"VLM backbone does not exist, cloning {variant['model']} from {variant['model_url']}..."
-        )
-        os.system(f"git clone {variant['model_url']} .vlms/{repo_name}")
-        variant['model_path'] = ".vlms/" + repo_name
-        variant['model_config'] = os.path.join(variant['model_path'], "config.json")
-
-    if variant["model"] == "kosmos":
-        import transformers
-
-        package_dir = transformers.__path__[0]
-        os.system(
-            "cp tools/modeling_kosmos2.py {}/models/kosmos2/modeling_kosmos2.py".format(
-                package_dir
-            )
-        )
-
-        import importlib
-
-        importlib.reload(transformers)
-
-    model = BaseTrainer.from_checkpoint(
-        model_load_path, variant.get("model_load_source", "torch"), variant
-    )
-
-    uform_model = model.model.backbone
-
-    from transformers import AutoModel, AutoProcessor
-    from PIL import Image
-    import torch
-    uform_model = uform_model.to(torch.float32)
-    processor = AutoProcessor.from_pretrained("unum-cloud/uform-gen2-qwen-500m", trust_remote_code=True)
-
-    prompt = "In: What action should the robot take to grab the green rag? \nOut:"
-    image = Image.open("test.png")
-
-    inputs = processor(text=[prompt], images=[image], return_tensors="pt")
-    with torch.inference_mode():
-        output = uform_model.generate(
-            **inputs,
-            do_sample=False,
-            use_cache=True,
-            max_new_tokens=256,
-            eos_token_id=151645,
-            pad_token_id=processor.tokenizer.pad_token_id
-        )
-
-    prompt_len = inputs["input_ids"].shape[1]
-    decoded_text = processor.batch_decode(output[:, prompt_len:])[0]
-    print(decoded_text)
-
-
 if __name__ == "__main__":
-    main()
+    # import os
+
+    # os.environ['CUDA_LAUNCH_BLOCKING']="1"
+    args = parse_args()
+
+    # load config files
+    configs = load_config(args.get("config"))
+    configs = update_configs(configs, args)
+
+    try:
+        dist.init_process_group(backend="nccl")
+    except Exception:
+        pass
+    experiment(variant=configs)

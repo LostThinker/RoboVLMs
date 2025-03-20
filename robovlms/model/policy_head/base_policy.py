@@ -115,11 +115,12 @@ class BasePolicyHead(nn.Module):
         assert modal_name in tok_mask_dict, f"{modal_name} not in token sequence"
         return self._get_target_modal_tokens(tok_seq, tok_mask_dict[modal_name])
 
-    def loss(self, pred_action, labels, attention_mask=None):
+    def loss(self, pred_action, labels, attention_mask=None, reduce_batch=True):
         """
         pred_action_logits: [bs, seq_len, chunck_size, 7], 1-6 refers to ee pose, 7 refers to gripper open/close
         lables: (pose gt [bs, seq_len, chunck_size, 6], gripper gt [bs, seq_len, chunck_size])
         attention_mask: [bs, seq_len, chunck_size]
+        reduce_batch: whether to take mean over batch dimension
         """
         if labels is None or labels[0] is None:
             return {"loss": None}
@@ -133,37 +134,71 @@ class BasePolicyHead(nn.Module):
                 )
             else:
                 raise ValueError("Can not solve the gripper action dim")
+
         if attention_mask is None:
-            pose_loss = torch.nn.functional.huber_loss(pred_action[..., :6], labels[0])
-            # pose_loss = torch.nn.functional.mse_loss(pred_action[..., :6], labels[0])
-            gripper_loss = torch.nn.functional.binary_cross_entropy_with_logits(
-                pred_action[..., -1], labels[1]
+            pose_loss = torch.nn.functional.huber_loss(
+                pred_action[..., :6], labels[0], reduction="none"
             )
+            pose_loss = pose_loss.mean(dim=tuple(range(1, pose_loss.ndim)))
+            if reduce_batch:
+                pose_loss = pose_loss.mean()
+
+            gripper_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+                pred_action[..., -1], labels[1], reduction="none"
+            )
+            gripper_loss = gripper_loss.mean(dim=tuple(range(1, gripper_loss.ndim)))
+            if reduce_batch:
+                gripper_loss = gripper_loss.mean()
         else:
             pose_loss = torch.nn.functional.huber_loss(
                 pred_action[..., :6], labels[0], reduction="none"
             )
-            # pose_loss = torch.nn.functional.mse_loss(pred_action[..., :6], labels[0], reduction='none')
             attention_mask = attention_mask.bool()
-            pose_loss = pose_loss[attention_mask].mean()
-            # gripper_loss = torch.nn.functional.binary_cross_entropy(pred_action[..., -1], labels[1], reduction='none')
+            if reduce_batch:
+                pose_loss = pose_loss[attention_mask].mean()
+            else:
+                # Average over sequence dimensions but keep batch dimension
+                pose_loss = (pose_loss * attention_mask.unsqueeze(-1)).sum(
+                    dim=(1, 2)
+                ) / attention_mask.sum(dim=(1, 2)).unsqueeze(-1)
+                pose_loss = pose_loss.mean(dim=-1)
+
             gripper_loss = torch.nn.functional.binary_cross_entropy_with_logits(
                 pred_action[..., -1], labels[1], reduction="none"
             )
-            gripper_loss = gripper_loss[attention_mask].mean()
+            if reduce_batch:
+                gripper_loss = gripper_loss[attention_mask].mean()
+            else:
+                gripper_loss = (gripper_loss * attention_mask).sum(
+                    dim=(1, 2)
+                ) / attention_mask.sum(dim=(1, 2))
 
         gripper_action_preds = (F.sigmoid(pred_action[..., -1]) > 0.5).float()
         acc_gripper_act = torch.eq(gripper_action_preds, labels[1]).float()
         if attention_mask is None:
-            acc_gripper_act = acc_gripper_act.mean()
+            if reduce_batch:
+                acc_gripper_act = acc_gripper_act.mean()
+            else:
+                acc_gripper_act = acc_gripper_act.mean(
+                    dim=tuple(range(1, acc_gripper_act.ndim))
+                )
         else:
-            # acc_gripper_act = (acc_gripper_act * attention_mask).sum() / attention_mask.sum()
-            acc_gripper_act = acc_gripper_act[attention_mask].mean()
+            if reduce_batch:
+                acc_gripper_act = acc_gripper_act[attention_mask].mean()
+            else:
+                acc_gripper_act = (acc_gripper_act * attention_mask).sum(
+                    dim=(1, 2)
+                ) / attention_mask.sum(dim=(1, 2))
+
+        if not reduce_batch:
+            acc_gripper_act = acc_gripper_act.detach()
+        else:
+            acc_gripper_act = acc_gripper_act.item()
 
         return {
             "loss_arm": pose_loss,
             "loss_gripper": gripper_loss,
-            "acc_gripper": acc_gripper_act.item(),
+            "acc_gripper": acc_gripper_act,
         }
 
     def get_labels(self, pred_actions, labels, action_masks, **kwargs):
@@ -396,6 +431,7 @@ class LSTMDecoder(BasePolicyHead):
         hidden_size=1024,
         num_layers=4,
         policy_rnn_dropout_p=0.0,
+        early_return=False,
         **kwargs,
     ):
         super(LSTMDecoder, self).__init__(in_features, action_dim, **kwargs)
@@ -406,6 +442,7 @@ class LSTMDecoder(BasePolicyHead):
         self.fwd_pred_next_n = fwd_pred_next_n
         self.history_memory = []
         self.hidden_size = hidden_size
+        self.early_return = early_return
         # TODO if there is needed for in_features*latents
         self.rnn = lstm_decoder(
             in_features * latent, hidden_size * latent, num_layers, policy_rnn_dropout_p
@@ -471,7 +508,8 @@ class LSTMDecoder(BasePolicyHead):
             self.hidden_state = h_0
             x, h_n = self.rnn(tok_seq, self.hidden_state)
             self.hidden_state = h_n
-
+        if self.early_return:
+            return x
         # self.hidden_state = h_0
         # x, h_n = self.rnn(tok_seq, self.hidden_state)
         # self.hidden_state = h_n
@@ -494,6 +532,7 @@ class GPTDecoder(BasePolicyHead):
         fwd_pred_next_n,
         window_size,
         hidden_size=1024,
+        early_return=False,
         **kwargs,
     ):
         super(GPTDecoder, self).__init__(in_features, action_dim, **kwargs)
@@ -505,7 +544,7 @@ class GPTDecoder(BasePolicyHead):
         self.fwd_pred_next_n = fwd_pred_next_n
         self.history_memory = []
         self.hidden_size = hidden_size
-
+        self.early_return = early_return
         # self.history_len = 1
         # self.window_size = 1
 
@@ -577,7 +616,8 @@ class GPTDecoder(BasePolicyHead):
 
         else:
             x = self.gpt(tok_seq, time_step, attention_mask)
-
+        if self.early_return:
+            return x
         actions = self.actions(x)
         gripper = self.gripper(x)
 
