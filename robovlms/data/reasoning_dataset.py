@@ -1,6 +1,6 @@
 import os
 from logging.config import dictConfig
-from typing import Any, Dict
+from typing import Any, Dict, Union
 import numpy as np
 from robovlms.data.base_openvla_dataset import RLDSDataset
 from robovlms.data.base_action_prediction_dataset import ActionPredictionDataset
@@ -23,137 +23,6 @@ from robovlms.data.vid_llava_constants import (
 )
 
 
-class CotTag(enum.Enum):
-    TASK = "TASK:"
-    PLAN = "PLAN:"
-    VISIBLE_OBJECTS = "VISIBLE OBJECTS:"
-    SUBTASK_REASONING = "SUBTASK REASONING:"
-    SUBTASK = "SUBTASK:"
-    MOVE_REASONING = "MOVE REASONING:"
-    MOVE = "MOVE:"
-    GRIPPER_POSITION = "GRIPPER POSITION:"
-    ACTION = "ACTION:"
-
-
-def abbreviate_tag(tag: str):
-    return tag[0] + tag[-2]
-
-
-def get_cot_tags_list():
-    return [
-        CotTag.TASK.value,
-        CotTag.PLAN.value,
-        CotTag.VISIBLE_OBJECTS.value,
-        CotTag.SUBTASK_REASONING.value,
-        CotTag.SUBTASK.value,
-        CotTag.MOVE_REASONING.value,
-        CotTag.MOVE.value,
-        CotTag.GRIPPER_POSITION.value,
-        CotTag.ACTION.value,
-    ]
-
-
-def get_cot_database_keys():
-    return {
-        CotTag.TASK.value: "task",
-        CotTag.PLAN.value: "plan",
-        CotTag.VISIBLE_OBJECTS.value: "bboxes",
-        CotTag.SUBTASK_REASONING.value: "subtask_reason",
-        CotTag.SUBTASK.value: "subtask",
-        CotTag.MOVE_REASONING.value: "move_reason",
-        CotTag.MOVE.value: "move",
-        CotTag.GRIPPER_POSITION.value: "gripper",
-        CotTag.ACTION.value: "action",
-    }
-
-
-def make_tf_dict(raw_dict):
-    print("Building the reasoning dict...")
-    keys = []
-    values = []
-
-    def reasoning_dict_to_str(d):
-        tags = get_cot_tags_list()[:-1]  # exclude ACTION
-        database_keys = get_cot_database_keys()
-        reasoning_parts = [(tag, d[database_keys[tag]]) for tag in tags]
-
-        return "@".join(f"{tag}@{part}" for tag, part in reasoning_parts)
-
-    has_reasoning = [0, 0]
-
-    for file_name in raw_dict.keys():
-        for episode_id in raw_dict[file_name].keys():
-            if "reasoning" not in raw_dict[file_name][episode_id].keys():
-                has_reasoning[0] += 1
-                continue
-            else:
-                has_reasoning[1] += 1
-
-            for i in raw_dict[file_name][episode_id]["reasoning"].keys():
-                keys.append(file_name + "_" + str(episode_id) + "_" + i)
-                reasoning_dict = raw_dict[file_name][episode_id]["reasoning"][i]
-
-                gripper_lookahead_n = 5  # list this many future positions of the gripper
-                trajectory_features = raw_dict[file_name][episode_id]["features"]
-
-                reasoning_dict["gripper"] = ""
-                if "gripper_position" in trajectory_features.keys():
-                    if trajectory_features["gripper_position"] is not None:
-                        if 0 <= int(i) < len(trajectory_features["gripper_position"]):
-                            future_positions = []
-                            for j in range(gripper_lookahead_n):
-                                if int(i) + j < len(trajectory_features["gripper_position"]):
-                                    future_positions += trajectory_features["gripper_position"][int(i) + j]
-                                else:
-                                    future_positions += future_positions[-2:]
-
-                            reasoning_dict["gripper"] = str(future_positions)
-
-                reasoning_dict["bboxes"] = ""
-                if "bboxes" in trajectory_features.keys():
-                    if trajectory_features["bboxes"] is not None:
-                        if 0 <= int(i) < len(trajectory_features["bboxes"]):
-                            if len(trajectory_features["bboxes"][int(i)]) > 0:
-                                boxes_list = trajectory_features["bboxes"][int(i)]
-                                reasoning_dict["bboxes"] = ", ".join(
-                                    [f"{name} {box!s}" for prob, name, box in boxes_list]
-                                )
-
-                values.append(reasoning_dict_to_str(reasoning_dict))
-
-    print("Example reasoning:", keys[0], values[0])
-    print("Reasoning presence statistics [# has not, # has]:", has_reasoning)
-
-    return tf.lookup.StaticHashTable(tf.lookup.KeyValueTensorInitializer(keys, values), default_value="")
-
-
-def reasoning_dropout(reasoning: str, dropout_prob: float) -> Tuple[str, str]:
-    """Dropout reasoning tokens with probability `dropout_prob`."""
-    if len(reasoning) == 0:
-        return reasoning, ""
-
-    reasoning_parts = reasoning.split("@")
-    tags = [(reasoning_parts[i], reasoning_parts[i + 1]) for i in range(0, len(reasoning_parts), 2)]
-
-    subset = np.random.rand(len(tags)) > dropout_prob
-
-    subset_string = (
-            "[" + ", ".join([abbreviate_tag(tag) for (tag, _), is_taken in zip(tags, subset) if is_taken]) + "]"
-    )  # abbreviation
-
-    excluded_tags = []
-
-    if "EXCLUDE_TAGS" in os.environ:
-        excluded_tags = os.environ["EXCLUDE_TAGS"].split(",")
-
-    return (
-        " ".join(
-            [f"{tag[0]} {tag[1]}" for tag, is_taken in zip(tags, subset) if (is_taken and tag[0] not in excluded_tags)]
-        ),
-        subset_string,
-    )
-
-
 @dataclass
 class RLDSBatchTransform:
     model_name: str
@@ -162,14 +31,17 @@ class RLDSBatchTransform:
     image_transform: Callable[[List[Image.Image]], torch.Tensor]
     predict_stop_token: bool = True
     print_prompt_limit: int = 20
-    reasoning_dropout_prob: float = 0.0
+    cot_dropout: float = 0.0
+    cot_tags: List[str] = None
+    use_cot_stage_token: bool = False
 
     def __call__(self, rlds_batch: Dict[str, Any]) -> Dict[str, Any]:
         """Converts a RLDS batch to the format expected by the OpenVLA collator/models."""
         dataset_name, action = rlds_batch["dataset_name"], rlds_batch["action"][0]
         img = Image.fromarray(rlds_batch["observation"]["image_primary"][0])
         lang = rlds_batch["task"]["language_instruction"].decode().lower()
-        reasoning, subset = reasoning_dropout(rlds_batch["reasoning"], dropout_prob=self.reasoning_dropout_prob)
+        reasoning = self._build_reasoning_prompt(rlds_batch["reasoning"].decode())
+        # reasoning, subset = reasoning_dropout(rlds_batch["reasoning"].decode(), dropout_prob=self.cot_dropout)
 
         # Construct Chat-based Prompt =>> Input is default query + language instruction, output are the action tokens
         prompt_builder = get_prompt_builder(
@@ -180,7 +52,8 @@ class RLDSBatchTransform:
         conversation = [
             # {"from": "human", "value": f"What action should the robot take to {lang}? Explain why with {subset}."},
             {"from": "human", "value": f"What action should the robot take to {lang}?"},
-            {"from": "gpt", "value": f"{reasoning} {CotTag.ACTION.value} "},
+            # {"from": "gpt", "value": f"{reasoning} {CotTag.ACTION.value} "},
+            {"from": "gpt", "value": f"{reasoning} "},
         ]
 
         action_token = torch.tensor(self.action_tokenizer.encode_actions_to_token_ids(action))
@@ -229,6 +102,34 @@ class RLDSBatchTransform:
         labels[labels == image_tag_token] = IMAGE_TOKEN_INDEX
 
         return dict(pixel_values=pixel_values, input_ids=input_ids, labels=labels, dataset_name=dataset_name)
+
+    def _build_reasoning_prompt(self, reasoning: str):
+        reasoning = reasoning.split("@")
+        reasoning_dict = {}
+        for k, v in zip(reasoning[::2], reasoning[1::2]):
+            reasoning_dict[k] = v
+
+        reasoning_str = ""
+        # either no reasoning or all reasoning tags exist
+        if len(reasoning_dict) > 0:
+            if isinstance(self.cot_dropout, float):
+                dropout = [np.random.rand() < self.cot_dropout] * len(self.cot_tags)
+            else:
+                dropout = [np.random.rand() < d for d in self.cot_dropout]
+
+            for tag, drop in zip(self.cot_tags, dropout):
+                if drop:
+                    continue
+                thought = reasoning_dict[tag].strip()
+                if len(thought) == 0:
+                    thought = "None."
+                reasoning_str += f"{tag.upper()}: {thought}"
+                if self.use_cot_stage_token:
+                    reasoning_str += "<|cotstage|>"
+                else:
+                    reasoning_str += " "
+        reasoning_str += "ACTION:"
+        return reasoning_str
 
 
 @dataclass
@@ -303,6 +204,9 @@ class ECoTDataset(RLDSDataset):
             tokenizer: PreTrainedTokenizerBase,
             padding_side: str = "right",
             predict_stop_token: bool = True,
+            cot_tags: List[str] = [],
+            use_cot_stage_token: bool = False,
+            cot_dropout: Union[float, List[float]] = 0.0,
             **kwargs
     ):
         self.tokenizer = tokenizer
@@ -317,21 +221,20 @@ class ECoTDataset(RLDSDataset):
             max_action=kwargs['max_action'],
         )
 
-        self.batch_transform = RLDSBatchTransform(model_name, self.action_tokenizer, self.tokenizer, image_fn,
-                                                  predict_stop_token=predict_stop_token)
+        self.batch_transform = RLDSBatchTransform(
+            model_name,
+            self.action_tokenizer,
+            self.tokenizer,
+            image_fn,
+            predict_stop_token=predict_stop_token,
+            cot_dropout=cot_dropout,
+            cot_tags=cot_tags,
+            use_cot_stage_token=use_cot_stage_token
+
+        )
         self.collater = PaddedCollatorForActionPrediction(self.tokenizer.model_max_length, self.tokenizer.pad_token_id,
                                                           padding_side=padding_side)
 
-        with open(kwargs['reasoning_data_dir'], "r") as f:
-            reasoning_dataset = json.load(f)
-        self.reasoning_dataset = make_tf_dict(reasoning_dataset)
-
     def __iter__(self) -> Dict[str, Any]:
         for rlds_batch in RLDSDataset.__iter__(self):
-            reasoning_index = rlds_batch.pop('reasoning_index')
-            reasoning_index = tf.constant(reasoning_index, dtype=tf.string)
-            reasoning = self.reasoning_dataset.lookup(reasoning_index)
-            reasoning = reasoning.numpy().decode('utf-8')
-            rlds_batch["reasoning"] = reasoning
-
             yield self.batch_transform(rlds_batch)

@@ -3,16 +3,12 @@ import os.path
 from copy import deepcopy
 import torch
 from PIL import Image
-from typing import Literal
+from typing import Literal, Optional
 import numpy as np
 import functools
 
-from lightning.pytorch.trainer import Trainer
-
-from eval.calvin.eval_utils import init_trainer_config, euler2rotm, rotm2euler
+from eval.calvin.eval_utils import euler2rotm, rotm2euler
 from robovlms.train.base_trainer import BaseTrainer
-from robovlms.utils.model_utils import build_tokenizer
-from robovlms.data.datamodule.gr_datamodule import GRDataModule
 from robovlms.data.data_utils import get_text_function
 from robovlms.data.data_utils import (
     preprocess_image,
@@ -35,16 +31,17 @@ class CustomModel:
         save_dir=None,
         raw_calvin=True,
         debug=False,
-        action_ensemble=False,
+        no_action_ensemble=False,
     ):
         self.model = BaseTrainer(configs=configs)
         self.init_config(ckpt_path, configs, device, save_dir, raw_calvin, debug)
+        self.no_action_ensemble = no_action_ensemble
         # self.model.model.lm_head.window_size = 1
 
     def init_config(
         self, ckpt_path, configs, device, save_dir=None, raw_calvin=False, debug=False
     ):
-        ### load and convert checkpoint
+        # load and convert checkpoint
         self.debug = debug
         if configs["model"] == "kosmos":
             import transformers
@@ -55,6 +52,10 @@ class CustomModel:
                     package_dir
                 )
             )
+            # Reload transformers module to use updated modeling file
+            import importlib
+
+            importlib.reload(transformers)
 
         if not self.debug:
             ckpt = torch.load(ckpt_path, map_location="cpu")
@@ -73,8 +74,8 @@ class CustomModel:
             ckpt_name = os.path.basename(ckpt_path)
             save_dir = ckpt_dir if save_dir is None else save_dir
             load_info_path = os.path.join(save_dir, f"{ckpt_name}_loading_msg.json")
-            if os.path.exists(load_info_path):
-                os.system(f"sudo rm {load_info_path}")
+            # if os.path.exists(load_info_path):
+            #     os.remove(load_info_path)
             with open(load_info_path, "w") as f:
                 _info = {
                     "missing_keys": msg.missing_keys,
@@ -84,6 +85,8 @@ class CustomModel:
                 print(f"Model loading msg is updated to: {load_info_path}")
 
         self.configs = configs
+        self.use_cot = configs.get("use_cot", False)
+        self.cot_tags = configs.get("cot_tags", [])
 
         dtype = torch.float32
         if self.configs["trainer"]["precision"] == "bf16":
@@ -107,11 +110,10 @@ class CustomModel:
         if not hasattr(self.policy.model, "lm_head"):
             self.policy.model.lm_head = self.policy.model.act_head
 
-        self.tokenizer = build_tokenizer(self.configs["tokenizer"])
+        self.tokenizer = self.model.model.tokenizer
 
         self.window_size = configs["window_size"]
         self.fwd_pred_next_n = configs["fwd_pred_next_n"]
-        self.act_step = self.fwd_pred_next_n + 1
         self.seq_len = self.configs["seq_len"]
         self.use_hand_rgb = self.configs["use_hand_rgb"]
 
@@ -161,11 +163,8 @@ class CustomModel:
         self.action_hist_list.append(action)
 
         act_cache = []
-        # self.fwd_pred_next_n = 1
         max_len = self.fwd_pred_next_n
-        max_len = 1
-        # if self.tcp_rel:
-        #     max_len = 1
+
         while len(self.action_hist_list) > max_len:
             self.action_hist_list.pop(0)
 
@@ -239,7 +238,9 @@ class CustomModel:
         pad_mask[:pad_len] = False
         return queue_list, pad_mask
 
-    def preprocess(self, obs, lang, mode="continuous"):
+    def preprocess(
+        self, obs, lang, mode="continuous", frozen_thought: Optional[str] = None
+    ):
         # preprocess image
         image = obs["rgb_obs"]["rgb_static"]
         image = Image.fromarray(image)
@@ -264,41 +265,45 @@ class CustomModel:
                     torch.concatenate(gripper_x, dim=1).to(self.device).to(self.dtype)
                 )
 
-        if mode == "discrete":
-            if "llava" in self.policy.configs:
-                model_name = self.policy.configs["llava"]
-            elif "qwen" in self.policy.configs:
-                model_name = "qwen"
+        if "llava" in self.policy.configs:
+            model_name = self.policy.configs["llava"]
+        elif "qwen" in self.policy.configs:
+            model_name = "qwen"
+        else:
+            # model_name = self.policy.configs['llm']['pretrained_model_name_or_path']
+            model_name = self.policy.configs["model"]
+
+        prompt_builder = get_prompt_builder(
+            model_name, bos=self.tokenizer.bos_token, eos=self.tokenizer.eos_token
+        )
+
+        conversation = [
+            {
+                "from": "human",
+                "value": (
+                    f"What action should the robot take to {lang}?"
+                    if self.fwd_pred_next_n == 1
+                    else f"What {self.fwd_pred_next_n} step actions should the robot take to {lang}?"
+                ),
+            },
+            {"from": "gpt", "value": ""},
+        ]
+
+        if self.use_cot:
+            # Note: We start the answer with the first cot tag to force generating the reasoning part.
+            if frozen_thought is None:
+                conversation[1]["value"] = self.cot_tags[0].upper() + ":"
             else:
-                # model_name = self.policy.configs['llm']['pretrained_model_name_or_path']
-                model_name = self.policy.configs["model"]
+                conversation[1]["value"] = frozen_thought
 
-            prompt_builder = get_prompt_builder(
-                model_name, bos=self.tokenizer.bos_token, eos=self.tokenizer.eos_token
-            )
+        input_ids = []
+        for turn in conversation:
+            prompt_builder.add_turn(turn["from"], turn["value"])
+        prompt_text = prompt_builder.get_prompt()
 
-            conversation = [
-                {
-                    "from": "human",
-                    "value": (
-                        f"What action should the robot take to {lang}?"
-                        if self.act_step == 1
-                        else f"What {self.act_step} step actions should the robot take to {lang}?"
-                    ),
-                },
-                {"from": "gpt", "value": ""},
-            ]
-
-            input_ids = []
-            for turn in conversation:
-                prompt_builder.add_turn(turn["from"], turn["value"])
-
+        if mode == "discrete":
             input_ids = torch.tensor(
-                list(
-                    self.tokenizer(
-                        prompt_builder.get_prompt(), add_special_tokens=True
-                    ).input_ids
-                )
+                list(self.tokenizer(prompt_text, add_special_tokens=True).input_ids)
             )
             if self.tokenizer.eos_token is not None:
                 input_ids = input_ids[:-1]
@@ -306,7 +311,7 @@ class CustomModel:
             text_x = input_ids.unsqueeze(0)
             mask = torch.full((1, text_x.shape[-1]), True, dtype=torch.bool)
         else:
-            text_x, mask = self.text_preprocess([lang])
+            text_x, mask = self.text_preprocess([prompt_text])
 
         return (
             image_x.to(self.device).to(self.dtype),
@@ -315,10 +320,14 @@ class CustomModel:
             mask.to(self.device),
         )
 
-    def step(self, obs, goal):
+    def step(
+        self, obs, goal, use_cot: bool = False, frozen_thought: Optional[str] = None
+    ):
         """Step function."""
         input_dict = dict()
-        image_x, gripper_x, text_x, mask = self.preprocess(obs, goal, self.action_space)
+        image_x, gripper_x, text_x, mask = self.preprocess(
+            obs, goal, self.action_space, frozen_thought
+        )
 
         input_dict["rgb"] = image_x
         input_dict["hand_rgb"] = gripper_x
@@ -330,7 +339,12 @@ class CustomModel:
             input_dict["instr_and_action_mask"] = mask
 
         with torch.no_grad():
-            action = self.policy.inference_step(input_dict)["action"]
+            if use_cot:
+                res = self.policy.inference_step(input_dict, use_cot=use_cot)
+                action = res["action"]
+                thought = res["thought"]
+            else:
+                action = self.policy.inference_step(input_dict)["action"]
 
         if self.action_space != "discrete":
             # print(action)
@@ -367,13 +381,10 @@ class CustomModel:
             )
             action = tcp_to_world_frame(action, robot_obs)
 
-        action = self.ensemble_action(action)
-
-        if isinstance(action, torch.Tensor):
+        if self.no_action_ensemble:
             action = action.squeeze()
-            if action.ndim == 2:
-                action = action[0]
-            # action = action.numpy()
+        else:
+            action = self.ensemble_action(action)
 
         if self.configs.get("use_mu_law", False):
             from robovlms.data.data_utils import inverse_mu_law_companding
@@ -402,41 +413,52 @@ class CustomModel:
             pass
         else:
             if self.raw_calvin:
-                action[-1] = (action[-1] - 0.5) * 2
+                action[..., -1] = (action[..., -1] - 0.5) * 2
             else:
                 state = obs["robot_obs"]  # (15,)
-                xyz_state = state[:3]
-                rpy_state = state[3:6]
+                xyz_state = state[..., :3]
+                rpy_state = state[..., 3:6]
                 rotm_state = euler2rotm(rpy_state)
                 rel_action = action.numpy()
-                _c_rel_action = rel_action[:6]
-                xyz_action = _c_rel_action[:3]
-                rpy_action = _c_rel_action[3:6]
-                gripper_action = rel_action[6]
+                _c_rel_action = rel_action[..., :6]
+                xyz_action = _c_rel_action[..., :3]
+                rpy_action = _c_rel_action[..., 3:6]
+                gripper_action = rel_action[..., 6]
                 rotm_action = euler2rotm(rpy_action)
                 xyz_next_state = xyz_state + rotm_state @ xyz_action
                 rotm_next_state = rotm_state @ rotm_action
                 rpy_next_state = rotm2euler(rotm_next_state)
 
                 action = action.numpy()
-                action[:3] = xyz_next_state - xyz_state
-                action[3:6] = rpy_next_state - rpy_state
-                action[:6] *= [50.0, 50.0, 50.0, 20.0, 20.0, 20.0]
-                action[-1] = (gripper_action - 0.5) * 2
+                action[..., :3] = xyz_next_state - xyz_state
+                action[..., 3:6] = rpy_next_state - rpy_state
+                action[..., :6] *= [50.0, 50.0, 50.0, 20.0, 20.0, 20.0]
+                action[..., -1] = (gripper_action - 0.5) * 2
                 action = torch.from_numpy(action)
 
         self.rollout_step_counter += 1
-        action[-1] = 1 if action[-1] > 0 else -1
+        action[..., -1] = torch.where(action[..., -1] > 0, 1, -1)
         print(f"step {self.rollout_step_counter} action {action}")
-        return action
+        if use_cot:
+            print(f"thought: {thought}")
+            return action, thought
+        else:
+            return action
 
     def reset(self):
         if hasattr(self.model.model, "lm_head"):
             self.model.model.lm_head.hidden_state = None
             self.model.model.lm_head.history_memory = []
+            if hasattr(self.model.model.lm_head, "history_encoder"):
+                self.model.model.lm_head.history_encoder.hidden_state = None
+                self.model.model.lm_head.history_encoder.history_memory = []
+
         if hasattr(self.model.model, "act_head"):
             self.model.model.act_head.hidden_state = None
             self.model.model.act_head.history_memory = []
+            if hasattr(self.model.model.act_head, "history_encoder"):
+                self.model.model.act_head.history_encoder.hidden_state = None
+                self.model.model.act_head.history_encoder.history_memory = []
 
         self.rgb_list = []
         self.hand_rgb_list = []
