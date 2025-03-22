@@ -683,6 +683,37 @@ class BaseRoboVLM(nn.Module):
                 images=images,
             )
 
+        if self.force_model_cot or mode != "train":
+            lang_cot = self.model.generate(
+                inputs_embeds=inputs_embeds,
+                max_new_tokens=256,
+                eos_token_id=self.tokenizer.eos_token_id,
+                pad_token_id=self.tokenizer.pad_token_id,
+            )
+            batch_size = lang_cot.shape[0]
+            lang_cot = lang_cot[:, :-1]
+
+            action_mask = (lang_cot > self.action_tokenizer.action_token_begin_idx) & (lang_cot != self.tokenizer.encode(self.tokenizer.eos_token)[0])
+            action_ids = lang_cot[action_mask].reshape(batch_size, -1)
+
+            discretized_actions = self.action_tokenizer.decode_token_ids_to_actions(action_ids.cpu().numpy())
+            if isinstance(discretized_actions, list):
+                discretized_actions = np.array(discretized_actions)
+
+            if discretized_actions.shape[-1] != self.configs['act_head']['action_dim']:
+                discretized_actions = np.zeros((batch_size, self.configs['act_head']['action_dim']), dtype=discretized_actions.dtype)
+
+            discretized_actions[:, -1] = np.where(discretized_actions[:, -1] > 0, 1, -1)
+
+            all_ids = torch.cat([input_ids, lang_cot], dim=-1)
+            all_ids[all_ids == -200] = self.tokenizer.encode(self.tokenizer.pad_token)[0]
+
+            # thought = self.tokenizer.batch_decode(all_ids, skip_special_tokens=True)[0].split("assistant\n")[-1].strip()
+            thought = self.tokenizer.batch_decode(all_ids, skip_special_tokens=True)
+
+            # lang_cot = lang_cot[lang_cot <= self.action_tokenizer.action_token_begin_idx]
+            # lang_cot_embeds = self.word_embedding(lang_cot)
+
         output = self.model(
             input_ids=None,
             past_key_values=past_key_values,
@@ -699,7 +730,7 @@ class BaseRoboVLM(nn.Module):
             self._update_loss(loss, cot_metrics, "cotrain")
             return loss
         else:
-            return output
+            return discretized_actions, thought
 
     def _get_metrics_for_cot(self, output, token_gt):
         token_preds = output.logits.argmax(dim=2)
@@ -711,6 +742,7 @@ class BaseRoboVLM(nn.Module):
         correct_action_preds = (token_preds == token_gt) & action_mask
         action_accuracy = correct_action_preds.sum().float() / action_mask.sum().float()
 
+        # TODO: bug
         continuous_actions_pred = torch.tensor(
             self.action_tokenizer.decode_token_ids_to_actions(token_preds[action_mask].cpu().numpy())
         )
@@ -937,10 +969,7 @@ class BaseRoboVLM(nn.Module):
 
         new_input_embeds = torch.stack(new_input_embeds_padded, dim=0)
 
-        if _labels is None:
-            new_labels = None
-        else:
-            new_labels = new_labels_padded
+        new_labels = new_labels_padded
 
         if _attention_mask is None:
             attention_mask = None
@@ -1618,6 +1647,9 @@ class BaseRoboVLM(nn.Module):
             use_cache: bool = False,
             use_cot: bool = False,
             vision_gripper=None,
+            instr_and_action_ids: torch.Tensor = None,
+            instr_and_action_labels: torch.Tensor = None,
+            instr_and_action_mask: torch.Tensor = None,
             **kwargs,
     ):
         prediction = {}
@@ -1625,16 +1657,28 @@ class BaseRoboVLM(nn.Module):
         assert vision_x is not None
         bs, seq_len = vision_x.shape[:2]
         action_space = self.act_head_configs.get("action_space", "continuous")
+        eval_mode = self.configs.get("eval_mode", "vla")
         if self.train_setup_configs["predict_action"]:
             if action_space == "discrete":
                 if use_cot:
-                    raise NotImplementedError(
-                        "use_cot is not supported for discrete action space"
+                    action, thought = self.forward_vl_task(
+                        input_ids=instr_and_action_ids,
+                        labels=instr_and_action_labels,
+                        attention_mask=instr_and_action_mask,
+                        images=vision_x,
+                        mode="eval"
                     )
-                action = self.pred_action_discrete(
-                    lang_x, vision_x, vision_gripper, attention_mask
-                )
-                prediction["action"] = action
+                    prediction["action"] = action
+                    prediction["thought"] = thought
+
+                    # raise NotImplementedError(
+                    #     "use_cot is not supported for discrete action space"
+                    # )
+                else:
+                    action = self.pred_action_discrete(
+                        lang_x, vision_x, vision_gripper, attention_mask
+                    )
+                    prediction["action"] = action
 
             else:
                 res = self.forward_continuous(

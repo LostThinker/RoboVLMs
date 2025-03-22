@@ -14,16 +14,16 @@ from eval.calvin.model_wrapper import CustomModel
 
 class BaseModelInference(CustomModel):
     def __init__(
-        self,
-        ckpt_path,
-        configs,
-        device,
-        save_dir=None,
-        unnorm_key: Optional[str] = None,
-        policy_setup: str = "widowx_bridge",
-        exec_horizon: int = 1,
-        no_action_ensemble: bool = False,
-        update_plan_freq: int = 1,
+            self,
+            ckpt_path,
+            configs,
+            device,
+            save_dir=None,
+            unnorm_key: Optional[str] = None,
+            policy_setup: str = "widowx_bridge",
+            exec_horizon: int = 1,
+            no_action_ensemble: bool = False,
+            update_plan_freq: int = 1,
     ):
         self.configs = configs
         self.dataset_stat = self.load_dataset_stat()
@@ -97,13 +97,13 @@ class BaseModelInference(CustomModel):
         stat = {}
 
         with open(
-            "configs/data/oxe_dataset_stats/dataset_statistics_google.json", "r"
+                "configs/data/oxe_dataset_stats/dataset_statistics_google.json", "r"
         ) as f:
             google_info = json.load(f)
         stat["fractal20220817_data"] = google_info
 
         with open(
-            "configs/data/oxe_dataset_stats/dataset_statistics_bridge.json", "r"
+                "configs/data/oxe_dataset_stats/dataset_statistics_bridge.json", "r"
         ) as f:
             bridge_info = json.load(f)
         stat["bridge_orig"] = bridge_info
@@ -135,7 +135,7 @@ class BaseModelInference(CustomModel):
                 relative_gripper_action = np.array([0])
             else:
                 relative_gripper_action = (
-                    self.previous_gripper_action - current_gripper_action
+                        self.previous_gripper_action - current_gripper_action
                 )
             self.previous_gripper_action = current_gripper_action
 
@@ -182,10 +182,10 @@ class BaseModelInference(CustomModel):
         return image
 
     def visualize_epoch(
-        self,
-        predicted_raw_actions: Sequence[np.ndarray],
-        images: Sequence[np.ndarray],
-        save_path: str,
+            self,
+            predicted_raw_actions: Sequence[np.ndarray],
+            images: Sequence[np.ndarray],
+            save_path: str,
     ) -> None:
         images = [self._resize_image(image) for image in images]
         ACTION_DIM_LABELS = ["x", "y", "z", "roll", "pitch", "yaw", "grasp"]
@@ -227,15 +227,18 @@ class BaseModelInference(CustomModel):
 
         if self.use_cot:
             if (
-                self.prev_thought is None
-                or self.plan_update_counter % self.update_plan_freq == 0
+                    self.prev_thought is None
+                    or self.plan_update_counter % self.update_plan_freq == 0
             ):
                 action, thought = super().step(obs, goal, use_cot=True)
             else:
-                frozen_thought = self.prev_thought[0].split("\nOutput:")[-1].strip()
-                frozen_thought = frozen_thought.split("MOVE_REASON:")[0].replace(
-                    "@", "<|cotstage|>"
-                )
+                frozen_thought = self.prev_thought[0].split("assistant\n")[-1].strip()
+                if self.configs["use_cot_stage_token"]:
+                    frozen_thought = frozen_thought.split("MOVE_REASON:")[0].replace(
+                        "@", "<|cotstage|>"
+                    )
+                else:
+                    frozen_thought = frozen_thought.split("MOVE_REASON:")[0]
                 action, thought = super().step(
                     obs, goal, use_cot=True, frozen_thought=frozen_thought
                 )

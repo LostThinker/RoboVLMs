@@ -35,7 +35,7 @@ def get_args():
         help="Policy model setup; e.g., 'google_robot', 'widowx_bridge'",
     )
     parser.add_argument("--ckpt-path", type=str, default=None)
-    parser.add_argument("--env-name", type=str, required=True)
+    parser.add_argument("--env-name", type=str, default="GraspSingleOpenedCokeCanInScene-v0")
     parser.add_argument(
         "--additional-env-save-tags",
         type=str,
@@ -56,7 +56,7 @@ def get_args():
     parser.add_argument("--control-freq", type=int, default=3)
     parser.add_argument("--sim-freq", type=int, default=513)
     parser.add_argument("--max-episode-steps", type=int, default=80)
-    parser.add_argument("--rgb-overlay-path", type=str, default=None)
+    parser.add_argument("--rgb-overlay-path", type=str, default="real_inpainting/google_coke_can_real_eval_1.png")
     parser.add_argument(
         "--robot-init-x-range",
         type=float,
@@ -75,7 +75,7 @@ def get_args():
         "--robot-init-rot-quat-center",
         type=float,
         nargs=4,
-        default=[1, 0, 0, 0],
+        default=[0, 0, 0, 1],
         help="[x, y, z, w]",
     )
     parser.add_argument(
@@ -115,10 +115,10 @@ def get_args():
         nargs="+",
         action=DictAction,
         help="Additional env build kwargs in xxx=yyy format. If the value "
-        'is a list, it should be like key="[a,b]" or key=a,b '
-        'It also allows nested list/tuple values, e.g. key="[(a,b),(c,d)]" '
-        "Note that the quotation marks are necessary and that no white space "
-        "is allowed.",
+             'is a list, it should be like key="[a,b]" or key=a,b '
+             'It also allows nested list/tuple values, e.g. key="[(a,b),(c,d)]" '
+             "Note that the quotation marks are necessary and that no white space "
+             "is allowed.",
     )
     parser.add_argument("--logging-dir", type=str, default="./results")
     parser.add_argument(
@@ -146,6 +146,8 @@ def get_args():
     )
     parser.add_argument("--no_cache", action="store_true")
     parser.add_argument("--double-step", action="store_true")
+    parser.add_argument("--no_action_ensemble", action="store_true")
+
     args = parser.parse_args()
 
     # env args: robot pose
@@ -157,8 +159,8 @@ def get_args():
             for y in parse_range_tuple(args.robot_init_rot_rpy_range[6:]):
                 args.robot_init_quats.append(
                     (
-                        Pose(q=euler2quat(r, p, y))
-                        * Pose(q=args.robot_init_rot_quat_center)
+                            Pose(q=euler2quat(r, p, y))
+                            * Pose(q=args.robot_init_rot_quat_center)
                     ).q
                 )
     # env args: object position
@@ -171,20 +173,25 @@ def get_args():
             args.additional_env_save_tags = f"obs_camera_{args.obs_camera_name}"
         else:
             args.additional_env_save_tags = (
-                args.additional_env_save_tags + f"_obs_camera_{args.obs_camera_name}"
+                    args.additional_env_save_tags + f"_obs_camera_{args.obs_camera_name}"
             )
 
     return args
 
 
 if __name__ == "__main__":
-    CACHE_ROOT = "eval/logs"
+    CACHE_ROOT = "/data/user/qianlong/remote-ws/embodied-ai/vla/RoboVLMs/eval/logs"
     os.system(f"sudo mkdir -p {CACHE_ROOT}")
     os.system(f"sudo chmod 777 {CACHE_ROOT}")
 
     from robovlms.utils.config_utils import load_config
 
     args = get_args()
+
+    # debug
+    # args.config_path = "/data/user/qianlong/remote-ws/embodied-ai/vla/RoboVLMs/configs/oxe_training/finetune_uform_cont-lstm-post_full-ft_text_vision_wd-0_use-hand_ws-16_act-10_bridge_finetune_debug.json"
+    # args.ckpt_path = "/data/user/qianlong/remote-ws/embodied-ai/vla/RoboVLMs/runs/checkpoints/uform/bridge_cotrain/2025-03-12/15-40/epoch=0-step=22000.ckpt"
+
     args.logging_dir = "results_v3"
     config_path = args.config_path
     ckpt_dir = args.ckpt_dir
@@ -193,8 +200,9 @@ if __name__ == "__main__":
     # Loading configs
     assert config_path != None
     configs = load_config(config_path)
-    args.model_name = configs["config"].split("/")[-1].split(".")[0]
-    args.model_name += f'_{configs["exp_name"]}'
+    # args.model_name = configs["config"].split("/")[-1].split(".")[0]
+    args.model_name = configs["model"]
+    # args.model_name += f'_{configs["exp_name"]}'
     if args.double_step:
         args.model_name += "double"
     os.environ["DISPLAY"] = ""
@@ -254,6 +262,7 @@ if __name__ == "__main__":
         device=torch.device("cuda"),
         save_dir=eval_log_dir,
         policy_setup=args.policy_setup,
+        no_action_ensemble=args.no_action_ensemble,
     )
 
     # run real-to-sim evaluation
