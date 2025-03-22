@@ -298,6 +298,7 @@ def create_cot_img(img, thought):
     lines = thought.split("\n")
     # Add text lines
     start_y = 20
+    line_spacing = 12
     for i, line in enumerate(lines):
         if len(line.split(" ")) < 2 or "ACTION" in line:
             continue
@@ -310,10 +311,10 @@ def create_cot_img(img, thought):
             0.3,
             (0, 0, 0),
             1,
-            line_spacing=20  # 明确传入 line_spacing 参数
+            line_spacing=line_spacing
         )
         line_height = int(cv2.getTextSize("A", cv2.FONT_HERSHEY_SIMPLEX, 0.3, 1)[0][1])
-        start_y += num_lines * (line_height + 20)
+        start_y += num_lines * (line_height + line_spacing)
 
         # draw bbox
         if "VISIBLE OBJECTS" in line:
@@ -334,9 +335,9 @@ def draw_bbox(visible_obj_str, image):
         object_name = match[0]
         x1, y1, x2, y2 = map(int, match[1:])
         # 绘制检测框
-        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 1)
         # 添加标签
-        cv2.putText(image, object_name, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+        cv2.putText(image, object_name, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 255, 0), 1)
 
     return image
 
@@ -351,58 +352,6 @@ def draw_gripper(gripper_pos_str, image):
             gripper_list = gripper_list[:-1]
         points = [(gripper_list[i], gripper_list[i + 1]) for i in range(0, len(gripper_list), 2)]
         for point in points:
-            cv2.circle(image, point, 2, (0, 0, 255), -1)
+            cv2.circle(image, point, 2, (255, 0, 0), -1)
 
     return image
-
-# def add_cot_visual(images, predicted_cots):
-#     predicted_cots.append("End")
-#     new_images = []
-#
-#     for i in range(len(images)):
-#         img = images[i]
-#         cot = predicted_cots[i]
-#         cot_img = np.array(add_text_to_image(cot, image_size=(img.shape[0], img.shape[1] * 2)))
-#         new_images.append(np.concatenate([img, cot_img], axis=1))
-#
-#     return new_images
-#
-#
-# def add_text_to_image(text, image_size=(300, 200), background_color='white',
-#                       text_color='black', font_size=8, padding=20):
-#     # 创建空白图片
-#     image = Image.new('RGB', image_size, color=background_color)
-#     draw = ImageDraw.Draw(image)
-#
-#     # 选择字体和字体大小
-#     font = ImageFont.load_default()
-#     # 若使用特定字体文件，可使用以下方式
-#     # font = ImageFont.truetype('path/to/your/font.ttf', font_size)
-#
-#     # 计算可用宽度
-#     available_width = image_size[0] - 2 * padding
-#
-#     lines = []
-#     current_line = ""
-#     for word in text.split():
-#         test_line = current_line + word + " "
-#         test_width, _ = draw.textsize(test_line, font=font)
-#         if test_width <= available_width:
-#             current_line = test_line
-#         else:
-#             lines.append(current_line.rstrip())
-#             current_line = word + " "
-#     lines.append(current_line.rstrip())
-#
-#     # 计算文本总高度
-#     total_text_height = len(lines) * draw.textsize("A", font=font)[1]
-#     start_y = (image_size[1] - total_text_height) // 2
-#
-#     # 逐行绘制文本
-#     for line in lines:
-#         line_width, line_height = draw.textsize(line, font=font)
-#         x = (image_size[0] - line_width) // 2
-#         draw.text((x, start_y), line, fill=text_color, font=font)
-#         start_y += line_height
-#
-#     return image
