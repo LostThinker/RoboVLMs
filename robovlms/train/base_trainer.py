@@ -57,6 +57,7 @@ class BaseTrainer(pl.LightningModule):
             cot_tags=self.configs.get("cot_tags", None),
             action_cot_tags=self.configs.get("action_cot_tags", None),
             use_cot_stage_token=self.configs.get("use_cot_stage_token", True),
+            force_model_cot=self.configs.get("force_model_cot", False)
         )
         if self.configs["trainer"]["precision"] == "32":
             model = model.to(torch.float32)

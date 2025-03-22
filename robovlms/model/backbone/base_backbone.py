@@ -73,6 +73,7 @@ class BaseRoboVLM(nn.Module):
             cot_tags=None,
             action_cot_tags=None,
             use_cot_stage_token=False,
+            force_model_cot=False,
             **kwargs,
     ):
         super().__init__()
@@ -92,7 +93,7 @@ class BaseRoboVLM(nn.Module):
         self.cot_tags = cot_tags
         self.action_cot_tags = action_cot_tags
         self.use_cot_stage_token = use_cot_stage_token
-        self.force_model_cot = False
+        self.force_model_cot = force_model_cot
 
         self.kwargs = kwargs
         self.configs = configs
@@ -684,14 +685,17 @@ class BaseRoboVLM(nn.Module):
             )
 
         if self.force_model_cot or mode != "train":
+            if self.force_model_cot and mode == "train":
+                raise NotImplementedError("force_model_cot for training is not implemented")
+
             lang_cot = self.model.generate(
                 inputs_embeds=inputs_embeds,
-                max_new_tokens=256,
+                max_new_tokens=512,
                 eos_token_id=self.tokenizer.eos_token_id,
                 pad_token_id=self.tokenizer.pad_token_id,
             )
             batch_size = lang_cot.shape[0]
-            lang_cot = lang_cot[:, :-1]
+            # lang_cot = lang_cot[:, :-1]
 
             action_mask = (lang_cot > self.action_tokenizer.action_token_begin_idx) & (lang_cot != self.tokenizer.encode(self.tokenizer.eos_token)[0])
             action_ids = lang_cot[action_mask].reshape(batch_size, -1)
@@ -700,31 +704,37 @@ class BaseRoboVLM(nn.Module):
             if isinstance(discretized_actions, list):
                 discretized_actions = np.array(discretized_actions)
 
-            if discretized_actions.shape[-1] != self.configs['act_head']['action_dim']:
-                discretized_actions = np.zeros((batch_size, self.configs['act_head']['action_dim']), dtype=discretized_actions.dtype)
+            action_dim = self.configs['act_head']['action_dim']
+            if discretized_actions.shape[-1] != action_dim:
+                discretized_actions = np.zeros((batch_size, action_dim), dtype=discretized_actions.dtype)
 
             discretized_actions[:, -1] = np.where(discretized_actions[:, -1] > 0, 1, -1)
 
-            all_ids = torch.cat([input_ids, lang_cot], dim=-1)
-            all_ids[all_ids == -200] = self.tokenizer.encode(self.tokenizer.pad_token)[0]
+            lang_x_combined = torch.cat([input_ids, lang_cot], dim=-1)
+            lang_x_decode = lang_x_combined.clone()
+            lang_x_decode[lang_x_decode == -200] = self.tokenizer.encode(self.tokenizer.pad_token)[0]
+            if self.use_cot_stage_token:
+                lang_x_decode[torch.where(lang_x_decode == self.cot_stage_token_id)] = (
+                    self.tokenizer("@", add_special_tokens=False)["input_ids"][0]
+                )
 
             # thought = self.tokenizer.batch_decode(all_ids, skip_special_tokens=True)[0].split("assistant\n")[-1].strip()
-            thought = self.tokenizer.batch_decode(all_ids, skip_special_tokens=True)
+            thought = self.tokenizer.batch_decode(lang_x_decode, skip_special_tokens=True)
 
-            # lang_cot = lang_cot[lang_cot <= self.action_tokenizer.action_token_begin_idx]
-            # lang_cot_embeds = self.word_embedding(lang_cot)
-
-        output = self.model(
-            input_ids=None,
-            past_key_values=past_key_values,
-            attention_mask=attention_mask,
-            inputs_embeds=inputs_embeds,
-            labels=labels,
-            use_cache=use_cache,
-            output_hidden_states=True,
-        )
+            # combine cot with inputs to train action only
+            # lang_cot_embeds = self.word_embedding(lang_cot_no_action)
+            # inputs_embeds = torch.cat([inputs_embeds, lang_cot_embeds], dim=-2)
 
         if mode == "train":
+            output = self.model(
+                input_ids=None,
+                past_key_values=past_key_values,
+                attention_mask=attention_mask,
+                inputs_embeds=inputs_embeds,
+                labels=labels,
+                use_cache=use_cache,
+                output_hidden_states=True,
+            )
             self._update_loss(loss, {"loss_vl": output.loss}, "cotrain")
             cot_metrics = self._get_metrics_for_cot(output, labels)
             self._update_loss(loss, cot_metrics, "cotrain")
@@ -742,7 +752,6 @@ class BaseRoboVLM(nn.Module):
         correct_action_preds = (token_preds == token_gt) & action_mask
         action_accuracy = correct_action_preds.sum().float() / action_mask.sum().float()
 
-        # TODO: bug
         continuous_actions_pred = torch.tensor(
             self.action_tokenizer.decode_token_ids_to_actions(token_preds[action_mask].cpu().numpy())
         )
