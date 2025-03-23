@@ -284,7 +284,7 @@ def put_text_with_wrap(img, text, org, fontFace, fontScale, color, thickness, li
     return len(lines)
 
 
-def create_cot_img(img, thought):
+def create_cot_img(img, thought, font_scale=0.4):
     text_img = (
             np.ones((img.shape[0], 1000, 3), dtype=np.uint8) * 255
     )
@@ -292,13 +292,18 @@ def create_cot_img(img, thought):
 
     thought = thought[0]
     cot_tag = get_cot_database_keys()
+
+    def replace_full_word(text, old_word, new_word):
+        pattern = r'\b' + re.escape(old_word)
+        return re.sub(pattern, new_word, text)
+
     for tag in cot_tag.keys():
-        thought = thought.replace(tag, f"\n{tag}")
+        thought = replace_full_word(thought, tag, f"\n{tag}")
 
     lines = thought.split("\n")
     # Add text lines
     start_y = 20
-    line_spacing = 12
+    line_spacing = 10
     for i, line in enumerate(lines):
         if len(line.split(" ")) < 2 or "ACTION" in line:
             continue
@@ -308,12 +313,12 @@ def create_cot_img(img, thought):
             line,
             (10, start_y),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.3,
+            font_scale,
             (0, 0, 0),
             1,
             line_spacing=line_spacing
         )
-        line_height = int(cv2.getTextSize("A", cv2.FONT_HERSHEY_SIMPLEX, 0.3, 1)[0][1])
+        line_height = int(cv2.getTextSize("A", cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)[0][1])
         start_y += num_lines * (line_height + line_spacing)
 
         # draw bbox
@@ -326,7 +331,7 @@ def create_cot_img(img, thought):
     return img
 
 
-def draw_bbox(visible_obj_str, image):
+def draw_bbox(visible_obj_str, image, font_scale=0.3):
     pattern = r'(\w+(?: \w+)*) \[(\d+), (\d+), (\d+), (\d+)\]'
     matches = re.findall(pattern, visible_obj_str)
 
@@ -337,7 +342,7 @@ def draw_bbox(visible_obj_str, image):
         # 绘制检测框
         cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 1)
         # 添加标签
-        cv2.putText(image, object_name, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (0, 255, 0), 1)
+        cv2.putText(image, object_name, (x1 + 2, y1 + 6), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 0), 1)
 
     return image
 
