@@ -19,6 +19,7 @@
   "window_size": 16,
   "fwd_pred_next_n": 10,
   "arm_gripper_loss_ratio": 0.01,
+  "text_loss_ratio": 0.1,
   "cap_loss_ratio": 0.05,
   "fwd_loss_ratio": 0,
   "vl_cotrain_ratio": 1,
@@ -47,6 +48,20 @@
   "model_load_path": null,
   "model_load_source": "torch",
   "resume": null,
+  "use_cot_stage_token": true,
+  "use_cot": true,
+  "force_model_cot": false,
+  "use_chat_stage_token": true,
+  "cot_tags": [
+    "task",
+    "plan",
+    "bboxes",
+    "subtask_reason",
+    "subtask",
+    "move_reason",
+    "move",
+    "gripper"
+  ],
   "model_path": ".vlms/uform-gen2-qwen-500m",
   "model_config": ".vlms/uform-gen2-qwen-500m/config.json",
   "deepspeed_config": "configs/deepspeed/config.json",
@@ -89,7 +104,7 @@
     "latent": 1,
     "fwd_pred_next_n": 1,
     "window_size": 1,
-    "action_space": "continuous",
+    "action_space": "discrete",
     "with_history": true,
     "history_type": "post",
     "n_bin": 256,
@@ -138,7 +153,10 @@
       "window_sample": "sliding",
       "organize_type": "interleave",
       "shuffle_buffer_size": 51200,
-      "train": true
+      "train": true,
+      "use_cot": true,
+      "cot_file_name": "embodied_features_bridge.json",
+      "cot_dropout": 0.0
     },
     {
       "type": "CoTrainDataset",
@@ -154,7 +172,8 @@
       "model_name": "cotrain_uform",
       "mode": "train",
       "shuffle_seed": 42,
-      "split": "train"
+      "split": "train",
+      "connect_with_action": true
     },
     {
       "type": "CoTrainDataset",
@@ -163,6 +182,15 @@
       "mode": "train",
       "shuffle_seed": 42,
       "split": "train"
+    },
+    {
+      "type": "CoTrainDataset",
+      "data_dir": "LostThinker/DialogBridgev2",
+      "model_name": "cotrain_uform",
+      "mode": "train",
+      "shuffle_seed": 42,
+      "split": "train",
+      "connect_with_action": true
     }
   ],
   "val_dataset": [
@@ -177,7 +205,10 @@
       "window_sample": "sliding",
       "organize_type": "interleave",
       "shuffle_buffer_size": 10000,
-      "train": false
+      "train": false,
+      "use_cot": true,
+      "cot_file_name": "embodied_features_bridge.json",
+      "cot_dropout": 0.0
     },
     {
       "type": "CoTrainDataset",
@@ -193,7 +224,8 @@
       "model_name": "cotrain_uform",
       "mode": "train",
       "shuffle_seed": 42,
-      "split": "validation"
+      "split": "validation",
+      "connect_with_action": true
     },
     {
       "type": "CoTrainDataset",
@@ -202,6 +234,15 @@
       "mode": "train",
       "shuffle_seed": 42,
       "split": "validation"
+    },
+    {
+      "type": "CoTrainDataset",
+      "data_dir": "LostThinker/DialogBridgev2",
+      "model_name": "cotrain_uform",
+      "mode": "train",
+      "shuffle_seed": 42,
+      "split": "validation",
+      "connect_with_action": true
     }
   ],
   "norm_action": true,
@@ -209,6 +250,7 @@
   "norm_max": 0.65,
   "train_weights": [
     9,
+    1,
     1,
     1,
     1
