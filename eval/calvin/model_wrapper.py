@@ -273,6 +273,11 @@ class CustomModel:
             # model_name = self.policy.configs['llm']['pretrained_model_name_or_path']
             model_name = self.policy.configs["model"]
 
+        if self.configs['use_cot_data'] == True:
+            model_name = "cotrain_" + model_name
+            self.fwd_pred_next_n = 1
+
+
         prompt_builder = get_prompt_builder(
             model_name, bos=self.tokenizer.bos_token, eos=self.tokenizer.eos_token
         )
@@ -307,6 +312,9 @@ class CustomModel:
             )
             if self.tokenizer.eos_token is not None:
                 input_ids = input_ids[:-1]
+
+            image_tag_token = self.tokenizer.added_tokens_encoder[prompt_builder.default_image_token]
+            input_ids[input_ids == image_tag_token] = -200
 
             text_x = input_ids.unsqueeze(0)
             mask = torch.full((1, text_x.shape[-1]), True, dtype=torch.bool)

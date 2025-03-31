@@ -61,7 +61,7 @@ class ActionPredictionBatchTransform:
 
     @staticmethod
     def refine_action_at_gripper_dim(
-        action: Union[np.ndarray, torch.Tensor], value: int = -1, status: bool = False
+            action: Union[np.ndarray, torch.Tensor], value: int = -1, status: bool = False
     ):
         """
         make the open gripper action state as value (0 or 1)
@@ -80,10 +80,10 @@ class ActionPredictionBatchTransform:
         return action
 
     def convert_image(
-        self,
-        images: Optional[np.ndarray],
-        image_mask: torch.Tensor,
-        static: bool = True,
+            self,
+            images: Optional[np.ndarray],
+            image_mask: torch.Tensor,
+            static: bool = True,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if images is None:
             return None, None, None
@@ -140,21 +140,21 @@ class ActionPredictionBatchTransform:
         return action, action_mask, action_chunk, action_chunk_mask
 
     def get_right_pad_len(self, action_chunk_mask: np.ndarray, action_dim: int):
-        right_chunk_mask = action_chunk_mask[-self.fwd_pred_next_n :]
+        right_chunk_mask = action_chunk_mask[-self.fwd_pred_next_n:]
         return (right_chunk_mask.shape[0] - right_chunk_mask.sum()) * action_dim
 
     def cat_input_ids_and_action_ids(
-        self,
-        input_ids: List[int],
-        action_ids: List[int],
-        eos_token_id: Optional[int],
-        right_pad_len: int,
+            self,
+            input_ids: List[int],
+            action_ids: List[int],
+            eos_token_id: Optional[int],
+            right_pad_len: int,
     ):
         eos_offset = 1 if eos_token_id is not None else 0
         input_ids = (
-            input_ids[: len(input_ids) - eos_offset]
-            + action_ids
-            + input_ids[len(input_ids) - eos_offset :]
+                input_ids[: len(input_ids) - eos_offset]
+                + action_ids
+                + input_ids[len(input_ids) - eos_offset:]
         )
 
         labels = list(input_ids)
@@ -171,7 +171,7 @@ class ActionPredictionBatchTransform:
         labels[action_pad_start_index:action_pad_end_index] = IGNORE_INDEX
 
         if (right_pad_len != 0) or (
-            not self.predict_stop_token and self.tokenizer.eos_token
+                not self.predict_stop_token and self.tokenizer.eos_token
         ):
             labels[-1] = IGNORE_INDEX
         return input_ids, labels, attention_masks
@@ -205,11 +205,11 @@ class ActionPredictionBatchTransform:
         return reasoning_str
 
     def wrap_instruction_and_action_interleave(
-        self,
-        task_description: str,
-        action: torch.Tensor,
-        action_mask: torch.Tensor,
-        reasoning: Optional[str],
+            self,
+            task_description: str,
+            action: torch.Tensor,
+            action_mask: torch.Tensor,
+            reasoning: Optional[str],
     ):
         if self.mode == "train":
             assert action.shape[0] == self.window_size + self.fwd_pred_next_n - 1
@@ -315,8 +315,8 @@ class ActionPredictionBatchTransform:
             start_action_index = i
             end_action_index = i + self.fwd_pred_next_n
             tmp_action_ids = action_ids[
-                start_action_index * action_dim : end_action_index * action_dim
-            ]
+                             start_action_index * action_dim: end_action_index * action_dim
+                             ]
             tmp_action_mask = action_mask[start_action_index:end_action_index]
             right_pad_len = self.get_right_pad_len(tmp_action_mask, action_dim)
 
@@ -341,7 +341,7 @@ class ActionPredictionBatchTransform:
         )
 
     def wrap_instruction_and_action_segment(
-        self, task_description, action: torch.Tensor, action_mask: torch.Tensor
+            self, task_description, action: torch.Tensor, action_mask: torch.Tensor
     ):
         prompt_builder = get_prompt_builder(
             self.model_name, eos=self.tokenizer.eos_token, bos=self.tokenizer.bos_token
@@ -363,8 +363,8 @@ class ActionPredictionBatchTransform:
             history_action = np.zeros((0, action.shape[1]))
             history_len = 0
 
-        next_action = action[window_size - 1 :]
-        next_action_mask = action_mask[window_size - 1 :]
+        next_action = action[window_size - 1:]
+        next_action_mask = action_mask[window_size - 1:]
 
         action_dim = action.shape[1]
         history_action = history_action.flatten()
@@ -421,8 +421,8 @@ class ActionPredictionBatchTransform:
             prompt, add_special_tokens=add_special_tokens
         ).input_ids
         if (
-            self.tokenizer.eos_token is not None
-            and self.tokenizer.eos_token_id != input_ids[-1]
+                self.tokenizer.eos_token is not None
+                and self.tokenizer.eos_token_id != input_ids[-1]
         ):
             input_ids = input_ids + [self.tokenizer.eos_token_id]
 
@@ -446,14 +446,14 @@ class ActionPredictionBatchTransform:
         return input_ids, labels, torch.ones_like(input_ids, dtype=bool)
 
     def __call__(
-        self,
-        task_description: str,
-        action: np.ndarray,
-        episode_mask: np.ndarray,
-        images: np.ndarray,
-        reasoning: str,
-        step_ids: str,
-        gripper_images: Optional[np.ndarray] = None,
+            self,
+            task_description: str,
+            action: np.ndarray,
+            episode_mask: np.ndarray,
+            images: np.ndarray,
+            reasoning: str,
+            step_ids: str,
+            gripper_images: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         """Converts an item to the format expected by collator/models."""
         episode_mask = torch.tensor(episode_mask)
@@ -531,7 +531,7 @@ class ActionPredictionPaddedCollator:
     discrete: bool = False
 
     def __call__(
-        self, instances: Sequence[Dict[str, torch.Tensor]]
+            self, instances: Sequence[Dict[str, torch.Tensor]]
     ) -> Dict[str, torch.Tensor]:
         (
             image_tensors,
@@ -644,32 +644,32 @@ class ActionPredictionDataset(BaseTaskDataset):
     """
 
     def __init__(
-        self,
-        model_name: str = "flamingo",
-        mode: Literal["train", "inference"] = "train",
-        organize_type: Literal["interleave", "segment"] = "interleave",
-        discrete: bool = True,
-        action_history: bool = True,
-        image_history: bool = True,
-        predict_stop_token: bool = True,
-        special_history_id: int = IGNORE_INDEX,
-        window_size: int = 16,
-        fwd_pred_next_n: int = 2,
-        n_bin=256,
-        min_action=-1,
-        max_action=1,
-        norm_action: bool = False,
-        norm_min: int = -1,
-        norm_max: int = 1,
-        regular_action: bool = False,
-        x_mean: int = 0,
-        x_std: int = 1,
-        use_mu_law: bool = False,
-        use_cot: bool = False,
-        cot_tags: List[str] = [],
-        use_cot_stage_token: bool = False,
-        cot_dropout: Union[float, List[float]] = 0.0,
-        **kwargs,
+            self,
+            model_name: str = "flamingo",
+            mode: Literal["train", "inference"] = "train",
+            organize_type: Literal["interleave", "segment"] = "interleave",
+            discrete: bool = True,
+            action_history: bool = True,
+            image_history: bool = True,
+            predict_stop_token: bool = True,
+            special_history_id: int = IGNORE_INDEX,
+            window_size: int = 16,
+            fwd_pred_next_n: int = 2,
+            n_bin=256,
+            min_action=-1,
+            max_action=1,
+            norm_action: bool = False,
+            norm_min: int = -1,
+            norm_max: int = 1,
+            regular_action: bool = False,
+            x_mean: int = 0,
+            x_std: int = 1,
+            use_mu_law: bool = False,
+            use_cot: bool = False,
+            cot_tags: List[str] = [],
+            use_cot_stage_token: bool = False,
+            cot_dropout: Union[float, List[float]] = 0.0,
+            **kwargs,
     ):
         """
         Args:
@@ -731,6 +731,7 @@ class ActionPredictionDataset(BaseTaskDataset):
         ) = (norm_action, norm_min, norm_max, regular_action, x_mean, x_std, use_mu_law)
 
         self.n_bin, self.min_action, self.max_action = n_bin, min_action, max_action
+
         self.use_cot, self.cot_tags, self.use_cot_stage_token = (
             use_cot,
             cot_tags,
@@ -742,9 +743,10 @@ class ActionPredictionDataset(BaseTaskDataset):
 
         kwargs["task_type"] = "action"
         super().__init__(**kwargs)
+
         if self.use_cot and self.use_cot_stage_token:
             if "<|cotstage|>" not in self.tokenizer.special_tokens_map.get(
-                "additional_special_tokens", []
+                    "additional_special_tokens", []
             ):
                 self.tokenizer.add_special_tokens(
                     {"additional_special_tokens": ["<|cotstage|>"]}

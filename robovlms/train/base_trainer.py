@@ -57,6 +57,7 @@ class BaseTrainer(pl.LightningModule):
             cot_tags=self.configs.get("cot_tags", None),
             action_cot_tags=self.configs.get("action_cot_tags", None),
             use_cot_stage_token=self.configs.get("use_cot_stage_token", True),
+            force_model_cot=self.configs.get("force_model_cot", False)
         )
         if self.configs["trainer"]["precision"] == "32":
             model = model.to(torch.float32)
@@ -309,7 +310,9 @@ class BaseTrainer(pl.LightningModule):
         loss_cap = prediction.get("loss_cap", None)
         loss_kl = prediction.get("loss_kl", None)
         loss_vl_cotrain = prediction.get("loss_vl_cotrain", None)
-
+        cot_action_accuracy = prediction.get("cot_action_accuracy_cotrain", None)
+        cot_action_l1_loss = prediction.get("cot_action_l1_loss_cotrain", None)
+        cot_accuracy = prediction.get("cot_accuracy_cotrain", None)
         # loss logout for discrete setting
         action_l1 = prediction.get("action_l1_act", None)
 
@@ -358,6 +361,9 @@ class BaseTrainer(pl.LightningModule):
             "loss_kl": loss_kl,
             "clip_l1": clip_l1,
             "loss_vl_cotrain": loss_vl_cotrain,
+            "cot_action_accuracy": cot_action_accuracy,
+            "cot_action_l1_loss": cot_action_l1_loss,
+            "cot_accuracy": cot_accuracy,
             "loss_text": loss_text,
         }
 
@@ -606,6 +612,9 @@ class BaseTrainer(pl.LightningModule):
                 prog_bar_set.add("acc_gripper_act")
                 prog_bar_set.add("action_l1")
                 prog_bar_set.add("clip_l1")
+                prog_bar_set.add("cot_action_accuracy")
+                prog_bar_set.add("cot_action_l1_loss")
+                prog_bar_set.add("cot_accuracy")
             if self.fwd_pred:
                 prog_bar_set.add("loss_obs_fwd")
                 if self.fwd_pred_hand:
@@ -714,11 +723,10 @@ class BaseTrainer(pl.LightningModule):
         return output["loss"]
 
     def inference_step(
-        self,
-        batch,
-        use_cot: bool = False,
+            self,
+            batch,
+            use_cot: bool = False,
     ):
-
         with torch.no_grad():
             # import pdb; pdb.set_trace()
             (

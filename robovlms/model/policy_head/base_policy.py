@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 
 def lstm_decoder(
-    in_features: int, hidden_size: int, num_layers: int, policy_rnn_dropout_p: float
+        in_features: int, hidden_size: int, num_layers: int, policy_rnn_dropout_p: float
 ) -> torch.nn.Module:
     return nn.LSTM(
         input_size=in_features,
@@ -90,13 +90,13 @@ class MLPHead(torch.nn.Module):
 
 class BasePolicyHead(nn.Module):
     def __init__(
-        self,
-        hidden_size,
-        action_dim,
-        action_space="continuous",
-        down_sample="pooling",
-        latent=1,
-        **kwargs,
+            self,
+            hidden_size,
+            action_dim,
+            action_space="continuous",
+            down_sample="pooling",
+            latent=1,
+            **kwargs,
     ):
         super().__init__()
         self.hidden_size = hidden_size
@@ -207,18 +207,18 @@ class BasePolicyHead(nn.Module):
 
 class DiscreteDecoder(BasePolicyHead):
     def __init__(
-        self,
-        hidden_size,
-        action_dim,
-        action_space="continuous",
-        down_sample="pooling",
-        latent=1,
-        cont_token_nun=1,
-        n_bin=256,
-        min_action=-1,
-        max_action=1,
-        tokenizer=None,
-        **kwargs,
+            self,
+            hidden_size,
+            action_dim,
+            action_space="continuous",
+            down_sample="pooling",
+            latent=1,
+            cont_token_nun=1,
+            n_bin=256,
+            min_action=-1,
+            max_action=1,
+            tokenizer=None,
+            **kwargs,
     ):
         super().__init__(
             hidden_size, action_dim, action_space, down_sample, latent, **kwargs
@@ -286,10 +286,10 @@ class DiscreteDecoder(BasePolicyHead):
         # arm_acc = correct_preds[...,:6].sum().float() / mask[...,:6].sum().float()
         # gripper_acc = correct_preds[...,-1].sum().float() / mask[...,-1].sum().float()
         arm_acc = (
-            correct_preds_cut[:, :6].sum().float() / correct_preds_cut[:, :6].numel()
+                correct_preds_cut[:, :6].sum().float() / correct_preds_cut[:, :6].numel()
         )
         gripper_acc = (
-            correct_preds_cut[:, -1].sum().float() / correct_preds_cut[:, -1].numel()
+                correct_preds_cut[:, -1].sum().float() / correct_preds_cut[:, -1].numel()
         )
 
         # Compute L1 Loss on Predicted (Continuous) Actions
@@ -329,14 +329,14 @@ def initialize_param(model):
 
 class FCDecoder(BasePolicyHead):
     def __init__(
-        self,
-        in_features,
-        hidden_size,
-        action_dim,
-        down_sample,
-        latent,
-        fwd_pred_next_n,
-        **kwargs,
+            self,
+            in_features,
+            hidden_size,
+            action_dim,
+            down_sample,
+            latent,
+            fwd_pred_next_n,
+            **kwargs,
     ):
         super(FCDecoder, self).__init__(hidden_size, action_dim, **kwargs)
         self.down_sample = down_sample
@@ -421,18 +421,18 @@ class FCDecoder(BasePolicyHead):
 
 class LSTMDecoder(BasePolicyHead):
     def __init__(
-        self,
-        in_features,
-        action_dim,
-        down_sample,
-        latent,
-        fwd_pred_next_n,
-        window_size,
-        hidden_size=1024,
-        num_layers=4,
-        policy_rnn_dropout_p=0.0,
-        early_return=False,
-        **kwargs,
+            self,
+            in_features,
+            action_dim,
+            down_sample,
+            latent,
+            fwd_pred_next_n,
+            window_size,
+            hidden_size=1024,
+            num_layers=4,
+            policy_rnn_dropout_p=0.0,
+            early_return=False,
+            **kwargs,
     ):
         super(LSTMDecoder, self).__init__(in_features, action_dim, **kwargs)
         self.down_sample = down_sample
@@ -508,6 +508,7 @@ class LSTMDecoder(BasePolicyHead):
             self.hidden_state = h_0
             x, h_n = self.rnn(tok_seq, self.hidden_state)
             self.hidden_state = h_n
+
         if self.early_return:
             return x
         # self.hidden_state = h_0
@@ -524,16 +525,16 @@ class LSTMDecoder(BasePolicyHead):
 
 class GPTDecoder(BasePolicyHead):
     def __init__(
-        self,
-        in_features,
-        action_dim,
-        down_sample,
-        latent,
-        fwd_pred_next_n,
-        window_size,
-        hidden_size=1024,
-        early_return=False,
-        **kwargs,
+            self,
+            in_features,
+            action_dim,
+            down_sample,
+            latent,
+            fwd_pred_next_n,
+            window_size,
+            hidden_size=1024,
+            early_return=False,
+            **kwargs,
     ):
         super(GPTDecoder, self).__init__(in_features, action_dim, **kwargs)
         self.down_sample = down_sample
@@ -545,6 +546,7 @@ class GPTDecoder(BasePolicyHead):
         self.history_memory = []
         self.hidden_size = hidden_size
         self.early_return = early_return
+
         # self.history_len = 1
         # self.window_size = 1
 
@@ -616,8 +618,10 @@ class GPTDecoder(BasePolicyHead):
 
         else:
             x = self.gpt(tok_seq, time_step, attention_mask)
+
         if self.early_return:
             return x
+
         actions = self.actions(x)
         gripper = self.gripper(x)
 

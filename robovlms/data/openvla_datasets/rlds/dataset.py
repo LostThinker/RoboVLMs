@@ -204,10 +204,11 @@ def make_dataset_from_rlds(
 
                                 reasoning_dict["gripper"] = str(future_positions)
 
-                    reasoning_dict["keyframe"] = str(
-                        trajectory_features["gripper_position"][int(i)]
-                        + trajectory_features["keyframe"][int(i)]
-                    )
+                    if "keyframe" in trajectory_features.keys():
+                        reasoning_dict["keyframe"] = str(
+                            trajectory_features["gripper_position"][int(i)]
+                            + trajectory_features["keyframe"][int(i)]
+                        )
 
                     reasoning_dict["bboxes"] = ""
                     if "bboxes" in trajectory_features.keys():

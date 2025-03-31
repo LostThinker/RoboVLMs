@@ -3,42 +3,44 @@ Evaluate a model on ManiSkill2 environment.
 """
 
 import os
-
+import re
 import numpy as np
 from transforms3d.euler import quat2euler
-
+import cv2
 from simpler_env.utils.env.env_builder import (
     build_maniskill2_env,
     get_robot_control_mode,
 )
+from robovlms.data.openvla_datasets.rlds.utils.cot_utils import get_cot_database_keys
 from simpler_env.utils.env.observation_utils import get_image_from_maniskill2_obs_dict
 from simpler_env.utils.visualization import write_video
+from PIL import Image, ImageDraw, ImageFont
 
 
 def run_maniskill2_eval_single_episode(
-    model,
-    ckpt_path,
-    robot_name,
-    env_name,
-    scene_name,
-    model_name,
-    robot_init_x,
-    robot_init_y,
-    robot_init_quat,
-    control_mode,
-    obj_init_x=None,
-    obj_init_y=None,
-    obj_episode_id=None,
-    additional_env_build_kwargs=None,
-    rgb_overlay_path=None,
-    obs_camera_name=None,
-    control_freq=3,
-    sim_freq=513,
-    max_episode_steps=80,
-    instruction=None,
-    enable_raytracing=True,
-    additional_env_save_tags=None,
-    logging_dir="./results_V2",
+        model,
+        ckpt_path,
+        robot_name,
+        env_name,
+        scene_name,
+        model_name,
+        robot_init_x,
+        robot_init_y,
+        robot_init_quat,
+        control_mode,
+        obj_init_x=None,
+        obj_init_y=None,
+        obj_episode_id=None,
+        additional_env_build_kwargs=None,
+        rgb_overlay_path=None,
+        obs_camera_name=None,
+        control_freq=3,
+        sim_freq=513,
+        max_episode_steps=80,
+        instruction=None,
+        enable_raytracing=True,
+        additional_env_save_tags=None,
+        logging_dir="./results_V2",
 ):
     if additional_env_build_kwargs is None:
         additional_env_build_kwargs = {}
@@ -100,7 +102,10 @@ def run_maniskill2_eval_single_episode(
 
     # Initialize logging
     image = get_image_from_maniskill2_obs_dict(env, obs, camera_name=obs_camera_name)
+    image = np.array(Image.fromarray(image).resize((256, 256), Image.BILINEAR))
     images = [image]
+    if model.use_cot:
+        images_cot = []
     predicted_actions = []
     predicted_terminated, done, truncated = False, False, False
 
@@ -114,7 +119,13 @@ def run_maniskill2_eval_single_episode(
     while not (predicted_terminated or truncated):
         # step the model; "raw_action" is raw model action output; "action" is the processed action to be sent into maniskill env
         # import pdb; pdb.set_trace()
-        raw_action, action = model.step(image, task_description)
+
+        if model.use_cot:
+            raw_action, action, cot = model.step(image, task_description)
+            images_cot.append(create_cot_img(image, cot))
+        else:
+            raw_action, action = model.step(image, task_description)
+
         predicted_actions.append(raw_action)
         predicted_terminated = bool(action["terminate_episode"][0] > 0)
 
@@ -148,6 +159,7 @@ def run_maniskill2_eval_single_episode(
         image = get_image_from_maniskill2_obs_dict(
             env, obs, camera_name=obs_camera_name
         )
+        image = np.array(Image.fromarray(image).resize((256, 256), Image.BILINEAR))
         images.append(image)
         timestep += 1
 
@@ -178,7 +190,10 @@ def run_maniskill2_eval_single_episode(
     r, p, y = quat2euler(robot_init_quat)
     video_path = f"{ckpt_path_basename}/{scene_name}/{control_mode}/{env_save_name}/rob_{robot_init_x}_{robot_init_y}_rot_{r:.3f}_{p:.3f}_{y:.3f}_rgb_overlay_{rgb_overlay_path_str}/{video_name}"
     video_path = os.path.join(logging_dir, video_path)
-    write_video(video_path, images, fps=5)
+    if model.use_cot:
+        write_video(video_path, images_cot, fps=5)
+    else:
+        write_video(video_path, images, fps=5)
 
     # save action trajectory
     action_path = video_path.replace(".mp4", ".png")
@@ -231,7 +246,7 @@ def maniskill2_evaluator(model, args):
                             )
                 elif args.obj_variation_mode == "episode":
                     for obj_episode_id in range(
-                        args.obj_episode_range[0], args.obj_episode_range[1]
+                            args.obj_episode_range[0], args.obj_episode_range[1]
                     ):
                         success_arr.append(
                             run_maniskill2_eval_single_episode(
@@ -242,3 +257,106 @@ def maniskill2_evaluator(model, args):
                     raise NotImplementedError()
 
     return success_arr
+
+
+def put_text_with_wrap(img, text, org, fontFace, fontScale, color, thickness, line_spacing=20, max_width=None):
+    if max_width is None:
+        max_width = img.shape[1]
+
+    words = text.split()
+    lines = []
+    current_line = ""
+    for word in words:
+        test_line = current_line + word + " "
+        (test_width, _), _ = cv2.getTextSize(test_line, fontFace, fontScale, thickness)
+        if test_width <= max_width:
+            current_line = test_line
+        else:
+            lines.append(current_line.rstrip())
+            current_line = word + " "
+    lines.append(current_line.rstrip())
+
+    x, y = org
+    line_height = int(cv2.getTextSize("A", fontFace, fontScale, thickness)[0][1])
+    for line in lines:
+        cv2.putText(img, line, (x, y), fontFace, fontScale, color, thickness)
+        y += line_height + line_spacing
+    return len(lines)
+
+
+def create_cot_img(img, thought, font_scale=0.4):
+    text_img = (
+            np.ones((img.shape[0], 1000, 3), dtype=np.uint8) * 255
+    )
+    # Split thought into multiple lines
+
+    thought = thought[0]
+    cot_tag = get_cot_database_keys()
+
+    def replace_full_word(text, old_word, new_word):
+        pattern = r'\b' + re.escape(old_word)
+        return re.sub(pattern, new_word, text)
+
+    for tag in cot_tag.keys():
+        thought = replace_full_word(thought, tag, f"\n{tag}")
+
+    lines = thought.split("\n")
+    # Add text lines
+    start_y = 20
+    line_spacing = 10
+    for i, line in enumerate(lines):
+        if len(line.split(" ")) < 2 or "ACTION" in line:
+            continue
+
+        num_lines = put_text_with_wrap(
+            text_img,
+            line,
+            (10, start_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            font_scale,
+            (0, 0, 0),
+            1,
+            line_spacing=line_spacing
+        )
+        line_height = int(cv2.getTextSize("A", cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)[0][1])
+        start_y += num_lines * (line_height + line_spacing)
+
+        # draw bbox
+        if "VISIBLE OBJECTS" in line:
+            draw_bbox(line, img)
+        if "GRIPPER POSITION" in line:
+            draw_gripper(line, img)
+
+    img = np.concatenate((img, text_img), axis=1)
+    return img
+
+
+def draw_bbox(visible_obj_str, image, font_scale=0.3):
+    pattern = r'(\w+(?: \w+)*) \[(\d+), (\d+), (\d+), (\d+)\]'
+    matches = re.findall(pattern, visible_obj_str)
+
+    # 绘制检测框和标签
+    for match in matches:
+        object_name = match[0]
+        x1, y1, x2, y2 = map(int, match[1:])
+        # 绘制检测框
+        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 1)
+        # 添加标签
+        cv2.putText(image, object_name, (x1 + 2, y1 + 6), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 0), 1)
+
+    return image
+
+
+def draw_gripper(gripper_pos_str, image):
+    pattern = r'\s*\[\s*(\d+(?:\s*,\s*\d+)*)\s*\]'
+    gripper_match = re.search(pattern, gripper_pos_str)
+    if gripper_match:
+        gripper_list_str = gripper_match.group(1)
+        gripper_list = [int(num) for num in gripper_list_str.split(',')]
+        if len(gripper_list) % 2 != 0:
+            gripper_list = gripper_list[:-1]
+        points = [(gripper_list[i], gripper_list[i + 1]) for i in range(0, len(gripper_list), 2)]
+        for point in points:
+            cv2.circle(image, point, 2, (255, 0, 0), -1)
+
+    return image
