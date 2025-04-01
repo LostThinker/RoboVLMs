@@ -63,29 +63,51 @@ class OpenVLADataset(ActionPredictionDataset, RLDSDataset):
     def _updata_fwd_gripper_pose(self, rlds_batch):
         reasoning_chunk = rlds_batch['observation']['reasoning']
         reasoning_chunk = [reason.decode() for reason in reasoning_chunk]
-
-        if all(item == "" for item in reasoning_chunk):
-            return rlds_batch
-
         chunk_mask = rlds_batch['chunk_mask']
         curr_reasoning = rlds_batch['reasoning'].decode()
         curr_idx = self.window_size - 1
-        assert curr_reasoning == reasoning_chunk[curr_idx]
-        if self.fwd_pred_next_n > 5:
+        append_num = self.fwd_pred_next_n - 5
+
+        if self.fwd_pred_next_n <= 5 or all(item == "" for item in reasoning_chunk) or curr_reasoning == '':
+            return rlds_batch
+
+        if reasoning_chunk[curr_idx + append_num] != '' and append_num <= 5:
+            curr_gripper_pose = extract_gripper_list(curr_reasoning)
+            fwd_gripper_pose = extract_gripper_list(reasoning_chunk[curr_idx + append_num])[-2 * append_num:]
+            curr_gripper_pose.extend(fwd_gripper_pose)
+            rlds_batch['reasoning'] = curr_reasoning.encode()
+            return rlds_batch
+
+        else:
             new_gripper_pose = []
-            for i in range(0, self.fwd_pred_next_n - 5):
-                idx = min(i + 1 + curr_idx, len(reasoning_chunk) - 1)
+            skip_count = 0
+            append_count = 0
+            idx = curr_idx
+            while append_count < append_num and idx < len(reasoning_chunk) - 1:
+                idx += 1
                 fwd_reason = reasoning_chunk[idx]
-                fwd_gripper_pose = extract_gripper_list(fwd_reason)[-2:]
+                if fwd_reason == '':
+                    skip_count += 1
+                    if skip_count >= 5:
+                        return rlds_batch
+                    continue
+
+                fwd_gripper_pose = extract_gripper_list(fwd_reason)[-2 * (skip_count + 1):]
                 new_gripper_pose.extend(fwd_gripper_pose)
+                append_count = append_count + skip_count + 1
+                skip_count = 0
+
+            if len(new_gripper_pose) < append_num * 2:
+                return rlds_batch
 
             curr_gripper_pose = extract_gripper_list(curr_reasoning)
             curr_gripper_pose.extend(new_gripper_pose)
+            curr_gripper_pose = curr_gripper_pose[:self.fwd_pred_next_n * 2]
             curr_reasoning = replace_gripper_list(curr_reasoning, curr_gripper_pose)
 
-        rlds_batch['reasoning'] = curr_reasoning.encode()
+            rlds_batch['reasoning'] = curr_reasoning.encode()
 
-        return rlds_batch
+            return rlds_batch
 
 
 class OpenVLADatasetByRank(OpenVLADataset):
