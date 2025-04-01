@@ -43,7 +43,7 @@ class OpenVLADataset(ActionPredictionDataset, RLDSDataset):
 
     def __iter__(self) -> Dict[str, Any]:
         for rlds_batch in RLDSDataset.__iter__(self):
-            if "reasoning" in rlds_batch:
+            if "reasoning" in rlds_batch and self.kwargs.get('dynamic_gripper_pose', False):
                 rlds_batch = self._updata_fwd_gripper_pose(rlds_batch)
 
             yield self.batch_transform(
