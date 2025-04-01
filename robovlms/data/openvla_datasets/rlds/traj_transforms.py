@@ -51,6 +51,7 @@ def chunk_act_obs(
         lambda x: tf.gather(x, floored_action_chunk_indices), traj["observation"]
     )
     traj["action"] = tf.gather(traj["action"], floored_action_chunk_indices)
+    traj["observation"]["reasoning"] = tf.gather(traj["reasoning"], floored_action_chunk_indices)
 
     # if no absolute_action_mask was provided, assume all actions are relative
     if "absolute_action_mask" not in traj and future_action_window_size > 0:
