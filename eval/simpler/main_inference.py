@@ -2,7 +2,8 @@ import os
 import torch
 import numpy as np
 import tensorflow as tf
-
+import sys
+sys.path.append("/share/project/lxh/project/QL/RoboVLMs")
 from simpler_env.evaluation.argparse import get_args
 from eval.simpler.env_utlis import DictAction
 from eval.simpler.maniskill2_evaluator import maniskill2_evaluator
@@ -180,9 +181,9 @@ def get_args():
 
 
 if __name__ == "__main__":
-    CACHE_ROOT = "/data/user/qianlong/remote-ws/embodied-ai/vla/RoboVLMs/eval/logs"
-    os.system(f"sudo mkdir -p {CACHE_ROOT}")
-    os.system(f"sudo chmod 777 {CACHE_ROOT}")
+    CACHE_ROOT = "eval/simpler/logs"
+    os.system(f"mkdir -p {CACHE_ROOT}")
+    os.system(f"chmod 777 {CACHE_ROOT}")
 
     from robovlms.utils.config_utils import load_config
 
@@ -192,7 +193,7 @@ if __name__ == "__main__":
     # args.config_path = "/data/user/qianlong/remote-ws/embodied-ai/vla/RoboVLMs/configs/oxe_training/finetune_uform_cont-lstm-post_full-ft_text_vision_wd-0_use-hand_ws-16_act-10_bridge_finetune_debug.json"
     # args.ckpt_path = "/data/user/qianlong/remote-ws/embodied-ai/vla/RoboVLMs/runs/checkpoints/uform/bridge_cotrain/2025-03-12/15-40/epoch=0-step=22000.ckpt"
 
-    args.logging_dir = "results_v3"
+    args.logging_dir = "results_v2"
     config_path = args.config_path
     ckpt_dir = args.ckpt_dir
     ckpt_idx = 0
@@ -200,6 +201,7 @@ if __name__ == "__main__":
     # Loading configs
     assert config_path != None
     configs = load_config(config_path)
+    configs["use_cot_data"] = configs.get("use_cot_data", False)
     # args.model_name = configs["config"].split("/")[-1].split(".")[0]
     args.model_name = configs["model"]
     # args.model_name += f'_{configs["exp_name"]}'
@@ -253,8 +255,8 @@ if __name__ == "__main__":
         eval_log_dir = ckpt_dir
     else:
         eval_log_dir = os.path.join(CACHE_ROOT, eval_exp_name)
-    os.system(f"sudo mkdir {eval_log_dir}")
-    os.system(f"sudo chmod 777 -R {eval_log_dir}")
+    os.system(f"mkdir {eval_log_dir}")
+    os.system(f"chmod 777 -R {eval_log_dir}")
 
     model = BaseModelInference(
         ckpt_path=ckpt_path,

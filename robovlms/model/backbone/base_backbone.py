@@ -1233,7 +1233,7 @@ class BaseRoboVLM(nn.Module):
 
             lang_cot = self.model.generate(
                 inputs_embeds=multimodal_embeds,
-                max_new_tokens=256,
+                max_new_tokens=1024,
                 eos_token_id=self.tokenizer.eos_token_id,
                 pad_token_id=self.tokenizer.pad_token_id,
             )
@@ -1387,8 +1387,16 @@ class BaseRoboVLM(nn.Module):
         else:
             raise ValueError(f"Unsupported action space {action_space}")
 
-        if history_type == "video" and action_hs.ndim == 4:
-            action_hs = action_hs.squeeze(1)  # squeeze the seq_len dim
+        if history_type == "video":
+            if action_hs.ndim == 4:
+                action_hs = action_hs.squeeze(1)  # squeeze the seq_len dim
+            if action_labels is not None:
+                if isinstance(action_labels, tuple) or isinstance(action_labels, list):
+                    action_labels = (action_labels[0][:, -1], action_labels[1][:, -1])
+                else:
+                    action_labels = action_labels[:, -1]
+            if action_mask is not None:
+                action_mask = action_mask[:, -1]
 
         if self.use_clip_norm and mode == "train":
             clip_loss = self.clip_norm_head(action_hs, raw_text)

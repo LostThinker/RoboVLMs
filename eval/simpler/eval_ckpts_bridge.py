@@ -1,9 +1,29 @@
 import os
 
 ckpt_paths = [
+    # (
+    #     "/share/project/lxh/project/QL/RoboVLMs/runs/bridge_finetune_kosmos/2025-03-19/00-21/epoch-4.pt",
+    #     "/share/project/lxh/project/QL/RoboVLMs/runs/bridge_finetune_kosmos/2025-03-19/00-21/config.json",
+    # ),
+    # (
+    #     "/share/project/lxh/project/QL/RoboVLMs/runs/bridge_finetune_paligemma/2025-03-19/00-02/epoch2.pt",
+    #     "/share/project/lxh/project/QL/RoboVLMs/runs/bridge_finetune_paligemma/2025-03-19/00-02/config.json"
+    # )
+    # (
+    #     "/share/project/lxh/project/QL/RoboVLMs/runs/bridge_finetune_kosmos/2025-03-19/00-21/epoch-9.pt",
+    #     "/share/project/lxh/project/QL/RoboVLMs/runs/bridge_finetune_kosmos/2025-03-19/00-21/config.json",
+    # ),
+    # (
+    #     "/share/project/lxh/project/QL/RoboVLMs/runs/bridge_finetune_paligemma/2025-03-31/20-17/epoch-2_step-50k.pt",
+    #     "/share/project/lxh/project/QL/RoboVLMs/runs/bridge_finetune_paligemma/2025-03-31/20-17/config.json"
+    # )
+    # (
+    #     "/share/project/lxh/project/QL/RoboVLMs/runs/bridge_finetune_paligemma/2025-03-31/20-17/epoch-4_step-70k.pt",
+    #     "/share/project/lxh/project/QL/RoboVLMs/runs/bridge_finetune_paligemma/2025-03-31/20-17/config.json"
+    # )
     (
-        "runs/VLA-Checkpoint-{epoch}-{steps}.ckpt",
-        "runs/VLA-Checkpoint-config.json",
+        "/share/project/lxh/project/QL/RoboVLMs/runs/bridge_finetune_paligemma/2025-04-02/00-56/epoch-1_step-32500-video.pt",
+        "/share/project/lxh/project/QL/RoboVLMs/runs/bridge_finetune_paligemma/2025-04-02/00-56/config.json"
     )
 ]
 

@@ -1371,12 +1371,18 @@ if __name__ == "__main__":
     ckpt_name = "finetune_kosmos_cont-lstm-post_full-ft_text_vision_wd=0_hist=16_act=10_use-hand_aug-shift_act-norm_lr-2e-5_rt_20-11_epoch=0-step=50000.ckpt"
     # ckpt_name = 'finetune_kosmos_cont-lstm-post_full-ft_text_vision_wd=0_hist=16_act=10_use-hand_aug-shift_act-norm_lr-2e-5_rt_20-11_epoch=0-step=50000.ckpt'
     # ckpt_name = 'finetune_kosmos_cont-lstm-post_full-ft_text_vision_wd=0_hist=16_act=10_use-hand_aug-shift_act-norm_lr-1e-5_bs-128_warm-0_rt-partial_13-52_epoch=0-step=20000.ckpt'
-    calc_pick_coke_can_stats(log_dir_root, ckpt_name)
-    calc_move_near_stats(log_dir_root, ckpt_name)
-    calc_drawer_stats(log_dir_root, ckpt_name)
-    calc_long_horizon_apple_in_drawer_stats(log_dir_root, ckpt_name)
-    # calc_bridge_put_on_env_stats(log_dir_root, ckpt_name)
-
+    # calc_pick_coke_can_stats(log_dir_root, ckpt_name)
+    # calc_move_near_stats(log_dir_root, ckpt_name)
+    # calc_drawer_stats(log_dir_root, ckpt_name)
+    # calc_long_horizon_apple_in_drawer_stats(log_dir_root, ckpt_name)
+    log_dir_root = "results_v2"
+    ckpt_names = [
+        "paligemma_epoch-2_step-50k.pt", "paligemma_epoch-4_step-70k.pt"
+    ]
+    for ckpt_name in ckpt_names:
+        print(ckpt_name)
+        calc_bridge_put_on_env_stats(log_dir_root, ckpt_name)
+        print('-'*100)
     exit(0)
     if task == "pick_coke_can":
         calc_pick_coke_can_stats(log_dir_root, ckpt_name)

@@ -210,13 +210,15 @@ class CustomModel:
             q.get()
         q.put(element)
 
-    def get_history(self, q: Queue, pad: Literal["zero", "first"] = "zero"):
+    def get_history(self, q: Queue, pad: Literal["zero", "first"] = "first"):
         queue_list = list(q.queue)
         if len(queue_list) == 0:
             return queue_list, None
         history_type = self.configs["act_head"].get("history_type", "pre")
         if history_type == "pre":
             pad_len = 0
+        elif history_type == "video":
+            pad_len = self.window_size - len(queue_list) # pad with the first frame to the left
         else:
             raise ValueError(f"Unsupported history type {history_type}")
         element = queue_list[0]
@@ -273,7 +275,7 @@ class CustomModel:
             # model_name = self.policy.configs['llm']['pretrained_model_name_or_path']
             model_name = self.policy.configs["model"]
 
-        if self.configs['use_cot_data'] == True:
+        if self.configs.get('use_cot_data', False) is True:
             model_name = "cotrain_" + model_name
             self.fwd_pred_next_n = 1
 
