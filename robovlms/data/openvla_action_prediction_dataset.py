@@ -89,7 +89,7 @@ class OpenVLADataset(ActionPredictionDataset, RLDSDataset):
                 if fwd_reason == '':
                     skip_count += 1
                     if skip_count >= 5:
-                        return rlds_batch
+                        break
                     continue
 
                 fwd_gripper_pose = extract_gripper_list(fwd_reason)[-2 * (skip_count + 1):]
@@ -97,10 +97,15 @@ class OpenVLADataset(ActionPredictionDataset, RLDSDataset):
                 append_count = append_count + skip_count + 1
                 skip_count = 0
 
-            if len(new_gripper_pose) < append_num * 2:
-                return rlds_batch
-
             curr_gripper_pose = extract_gripper_list(curr_reasoning)
+
+            if len(new_gripper_pose) < append_num * 2:
+                if len(new_gripper_pose) == 0:
+                    new_gripper_pose = curr_gripper_pose[-2:] * append_num
+                else:
+                    pad_pose = new_gripper_pose[-2:] * (append_num - len(new_gripper_pose) // 2)
+                    new_gripper_pose.extend(pad_pose)
+
             curr_gripper_pose.extend(new_gripper_pose)
             curr_gripper_pose = curr_gripper_pose[:self.fwd_pred_next_n * 2]
             curr_reasoning = replace_gripper_list(curr_reasoning, curr_gripper_pose)
