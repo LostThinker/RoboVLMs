@@ -297,16 +297,19 @@ def create_cot_img(img, thought, font_scale=0.4):
         pattern = r'\b' + re.escape(old_word)
         return re.sub(pattern, new_word, text)
 
-    for tag in cot_tag.keys():
-        thought = replace_full_word(thought, tag, f"\n{tag}")
+    thought = thought.replace("@", " ")
+    for tag in cot_tag.values():
+        thought = replace_full_word(thought, tag.upper(), f"|{tag.upper()}")
 
-    lines = thought.split("\n")
+    lines = thought.split("|")
     # Add text lines
     start_y = 20
     line_spacing = 10
     for i, line in enumerate(lines):
         if len(line.split(" ")) < 2 or "ACTION" in line:
             continue
+
+        line = line.replace('\n', ' ')
 
         num_lines = put_text_with_wrap(
             text_img,
@@ -322,9 +325,9 @@ def create_cot_img(img, thought, font_scale=0.4):
         start_y += num_lines * (line_height + line_spacing)
 
         # draw bbox
-        if "VISIBLE OBJECTS" in line:
+        if "BBOXES" in line:
             draw_bbox(line, img)
-        if "GRIPPER POSITION" in line:
+        if "GRIPPER" in line:
             draw_gripper(line, img)
 
     img = np.concatenate((img, text_img), axis=1)

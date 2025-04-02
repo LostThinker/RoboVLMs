@@ -744,6 +744,35 @@ class BaseRoboVLM(nn.Module):
         else:
             return discretized_actions, thought
 
+    def _get_metrics_for_cot(self, output, token_gt):
+        token_preds = output.logits.argmax(dim=2)
+        action_mask = (token_gt > self.action_tokenizer.action_token_begin_idx) & (token_gt != self.tokenizer.encode(self.tokenizer.eos_token)[0])
+
+        if torch.all(action_mask == False):
+            return {}
+
+        correct_action_preds = (token_preds == token_gt) & action_mask
+        action_accuracy = correct_action_preds.sum().float() / action_mask.sum().float()
+
+        continuous_actions_pred = torch.tensor(
+            self.action_tokenizer.decode_token_ids_to_actions(token_preds[action_mask].cpu().numpy())
+        )
+        continuous_actions_gt = torch.tensor(
+            self.action_tokenizer.decode_token_ids_to_actions(token_gt[action_mask].cpu().numpy())
+        )
+        action_l1_loss = torch.nn.functional.l1_loss(continuous_actions_pred, continuous_actions_gt).to(action_accuracy.device)
+
+        cot_mask = (token_gt > 0) & ~action_mask
+        correct_cot_preds = (token_preds == token_gt) & cot_mask
+        cot_accuracy = correct_cot_preds.sum().float() / cot_mask.sum().float()
+
+        metrics = dict(
+            cot_action_accuracy=action_accuracy,
+            cot_action_l1_loss=action_l1_loss,
+            cot_accuracy=cot_accuracy
+        )
+        return metrics
+
     def prepare_inputs_labels_for_multimodal(
         self,
         input_ids: Optional[torch.LongTensor] = None,
