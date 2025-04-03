@@ -224,7 +224,6 @@ class BaseModelInference(CustomModel):
         obs = {}
         obs["rgb_obs"] = {}
         obs["rgb_obs"]["rgb_static"] = image
-
         if self.use_cot:
             if (
                     self.prev_thought is None
@@ -232,13 +231,10 @@ class BaseModelInference(CustomModel):
             ):
                 action, thought = super().step(obs, goal, use_cot=True)
             else:
-                frozen_thought = self.prev_thought[0].split("assistant\n")[-1].strip()
-                if self.configs["use_cot_stage_token"]:
-                    frozen_thought = frozen_thought.split("MOVE_REASON:")[0].replace(
-                        "@", "<|cotstage|>"
-                    )
-                else:
-                    frozen_thought = frozen_thought.split("MOVE_REASON:")[0]
+                frozen_thought = self.prev_thought[0].split("\nOutput:")[-1].strip()
+                frozen_thought = frozen_thought.split("MOVE_REASON:")[0].replace(
+                    "@", "<|cotstage|>"
+                )
                 action, thought = super().step(
                     obs, goal, use_cot=True, frozen_thought=frozen_thought
                 )

@@ -308,20 +308,28 @@ class CustomModel:
             prompt_builder.add_turn(turn["from"], turn["value"])
         prompt_text = prompt_builder.get_prompt()
 
-        if mode == "discrete":
-            input_ids = torch.tensor(
-                list(self.tokenizer(prompt_text, add_special_tokens=True).input_ids)
-            )
-            if self.tokenizer.eos_token is not None:
-                input_ids = input_ids[:-1]
+        # if mode == "discrete":
+        #     input_ids = torch.tensor(
+        #         list(self.tokenizer(prompt_text, add_special_tokens=True).input_ids)
+        #     )
+        #     if self.tokenizer.eos_token is not None:
+        #         input_ids = input_ids[:-1]
 
-            image_tag_token = self.tokenizer.added_tokens_encoder[prompt_builder.default_image_token]
-            input_ids[input_ids == image_tag_token] = -200
+        #     image_tag_token = self.tokenizer.added_tokens_encoder[prompt_builder.default_image_token]
+        #     input_ids[input_ids == image_tag_token] = -200
 
-            text_x = input_ids.unsqueeze(0)
-            mask = torch.full((1, text_x.shape[-1]), True, dtype=torch.bool)
-        else:
-            text_x, mask = self.text_preprocess([prompt_text])
+        #     text_x = input_ids.unsqueeze(0)
+        #     mask = torch.full((1, text_x.shape[-1]), True, dtype=torch.bool)
+        # else:
+        #     text_x, mask = self.text_preprocess([prompt_text])
+        input_ids = torch.tensor(
+            list(self.tokenizer(prompt_text, add_special_tokens=False).input_ids)
+        )
+        if self.tokenizer.eos_token is not None and input_ids[-1] == self.tokenizer.eos_token_id:
+            input_ids = input_ids[:-1]
+
+        text_x = input_ids.unsqueeze(0)
+        mask = torch.full((1, text_x.shape[-1]), True, dtype=torch.bool)
 
         return (
             image_x.to(self.device).to(self.dtype),
